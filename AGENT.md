@@ -208,7 +208,9 @@ the `frame_id` query param Discord injects into the iframe URL
 ### Dev portal setup (manual)
 
 1. Enable **Activities**, add a placeholder OAuth2 redirect URI (`https://127.0.0.1`).
-2. **URL Mappings**: `/` → the public app URL, `/ws` → the public relay host.
+2. **URL Mappings**: `/` → the public app URL, `/ws` → the public relay host,
+   `/discord` → `discord.com` (Discord REST API for the guild nickname;
+   prefix is `DISCORD_CONFIG.apiProxyPrefix`).
    The `/ws` prefix is `DISCORD_CONFIG.wsProxyPrefix`; inside the sandbox
    (`*.discordsays.com`) `relayWsUrl()` in `net/roomClient.ts` dials
    `wss://<activity-host>/ws` directly — scheme must be `wss` with an
@@ -224,7 +226,7 @@ the `frame_id` query param Discord injects into the iframe URL
 
 | Module | Responsibility |
 | --- | --- |
-| `src/discord/client.ts` | Detection, SDK init, OAuth (`identify` + `rpc.activities.write`), invite `customId` + `ACTIVITY_JOIN` room-code handling, Discord display name |
+| `src/discord/client.ts` | Detection, SDK init, OAuth (`identify` + `rpc.activities.write` + `guilds.members.read`), invite `customId` + `ACTIVITY_JOIN` room-code handling, Discord display name (server nickname → `global_name` → `username`) |
 | `src/discord/presence.ts` | `updatePresence(gameState, ctx)` — maps game state to `setActivity` payloads (party size, elapsed timer, winner, join secret while in a lobby) |
 | `src/app/api/token/route.ts` | OAuth code → access token exchange |
 

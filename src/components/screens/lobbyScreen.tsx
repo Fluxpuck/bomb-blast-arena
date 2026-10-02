@@ -58,6 +58,13 @@ export function LobbyScreen({
   onBack,
 }: LobbyScreenProps) {
   const [name, setName] = useState(myName);
+  // Adopt a late-arriving myName (Discord auth resolving after the lobby
+  // opened) unless the user has already typed a nickname.
+  const [prevMyName, setPrevMyName] = useState(myName);
+  if (myName !== prevMyName) {
+    setPrevMyName(myName);
+    if (!name) setName(myName);
+  }
   const [joinCode, setJoinCode] = useState(initialJoinCode);
   const [fillBots, setFillBots] = useState(true);
   const [copied, setCopied] = useState(false);

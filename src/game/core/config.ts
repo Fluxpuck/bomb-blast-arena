@@ -83,8 +83,13 @@ export function getServerUrl(): string {
 // stays server-side in the /api/token route.
 export const DISCORD_CONFIG = {
   // OAuth scopes requested from the Discord client. rpc.activities.write
-  // unlocks setActivity(); identify is required for authenticate().
-  oauthScopes: ["identify", "rpc.activities.write"],
+  // unlocks setActivity(); identify is required for authenticate();
+  // guilds.members.read exposes the user's server nickname.
+  oauthScopes: ["identify", "rpc.activities.write", "guilds.members.read"],
+  // URL-mapping prefix configured in the dev portal that proxies to
+  // https://discord.com — the sandbox CSP blocks direct calls to the
+  // Discord REST API, same as any other external host.
+  apiProxyPrefix: "/discord",
   // URL-mapping prefix configured in the dev portal that proxies to the
   // relay server. Inside the Discord sandbox the client dials
   // wss://<activity-host><wsProxyPrefix> directly — see relayWsUrl in

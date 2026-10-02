@@ -18,8 +18,9 @@ let initPromise: Promise<DiscordSDK | null> | null = null;
 // Room code delivered by an ACTIVITY_JOIN dispatch (Discord's "Join" button
 // on a friend's presence) — consumed the same way as a shareLink custom_id.
 let activityJoinRoomCode: string | null = null;
-// The authenticated user's Discord display name — pre-fills the lobby
-// nickname and enables one-click room joins.
+// The authenticated user's Discord display name (server nickname, else
+// global name, else username) — pre-fills the lobby nickname and enables
+// one-click room joins.
 let discordUserName: string | null = null;
 let onActivityJoinRoom: ((code: string) => void) | null = null;
 
@@ -52,6 +53,42 @@ export function getLaunchRoomCode(): string | null {
 /** The authenticated user's Discord display name, or null before auth. */
 export function getDiscordUserName(): string | null {
   return discordUserName;
+}
+
+/**
+ * Base URL for Discord REST calls. Inside the sandbox (*.discordsays.com)
+ * the CSP only allows the activity's own origin, so requests go through the
+ * /discord URL mapping. Under a dev "Application URL Override" the origin
+ * isn't discordsays.com; call the API directly.
+ */
+function discordApiBase(): string {
+  if (window.location.host.endsWith(".discordsays.com")) {
+    return `${DISCORD_CONFIG.apiProxyPrefix}/api`;
+  }
+  return "https://discord.com/api";
+}
+
+/**
+ * The user's server nickname in the guild the Activity was launched in, or
+ * null — outside a guild (DMs), without a nickname, or on any failure
+ * (missing scope or URL mapping). Best-effort: never fails the init.
+ */
+async function fetchGuildNickname(
+  guildId: string | null,
+  accessToken: string
+): Promise<string | null> {
+  if (!guildId) return null;
+  try {
+    const response = await fetch(
+      `${discordApiBase()}/users/@me/guilds/${guildId}/member`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!response.ok) return null;
+    const member: { nick?: string | null } = await response.json();
+    return member.nick || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -109,7 +146,7 @@ export function initDiscordClient(): Promise<DiscordSDK | null> {
       // OAuthScopes isn't exported from the package's public types; the
       // config values are literals within that union, so narrow here.
       scope: DISCORD_CONFIG.oauthScopes as Array<
-        "identify" | "rpc.activities.write"
+        "identify" | "rpc.activities.write" | "guilds.members.read"
       >,
     });
 
@@ -122,7 +159,10 @@ export function initDiscordClient(): Promise<DiscordSDK | null> {
     const { access_token } = await response.json();
 
     const { user } = await instance.commands.authenticate({ access_token });
-    discordUserName = user.global_name ?? user.username;
+    discordUserName =
+      (await fetchGuildNickname(instance.guildId, access_token)) ??
+      user.global_name ??
+      user.username;
 
     sdk = instance;
     return sdk;

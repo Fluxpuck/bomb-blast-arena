@@ -284,7 +284,15 @@ export default function Home() {
       setDiscordReady(true);
       const name = getDiscordUserName();
       // Lobby nicknames are capped at 16 chars (lobby input maxLength).
-      discordNameRef.current = name ? name.slice(0, 16) : null;
+      const discordName = name ? name.slice(0, 16) : null;
+      discordNameRef.current = discordName;
+      // Auth can finish after the lobby is already open — backfill the
+      // nickname unless one is already set.
+      if (discordName) {
+        setLobbyState((prev) =>
+          prev.myName ? prev : { ...prev, myName: discordName }
+        );
+      }
       setOnActivityJoinRoom((code) => joinFromDiscordRef.current(code));
       const code = getLaunchRoomCode();
       if (code) joinFromDiscordRef.current(code);

@@ -42,10 +42,12 @@ export default function PrivacyPolicy() {
         <span className="text-ui-text">Discord data.</span> When launched as a
         Discord Activity, the Game uses Discord&rsquo;s Embedded App SDK. With
         your authorization we request the &ldquo;identify&rdquo; scope (to
-        authenticate the session) and &ldquo;rpc.activities.write&rdquo; (to
-        update your Rich Presence
-        status). We do not read your messages, friends list, or server data,
-        and we do not store Discord profile information.
+        authenticate the session), &ldquo;rpc.activities.write&rdquo; (to
+        update your Rich Presence status), and
+        &ldquo;guilds.members.read&rdquo; (to use your server nickname as
+        your default in-game name). We do not read your messages, friends
+        list, or other server data, and we do not store Discord profile
+        information.
       </p>
       <p className={p}>
         <span className="text-ui-text">Local storage.</span> Preferences such
