@@ -64,6 +64,20 @@ export function getDiscordUserName(): string | null {
 }
 
 /**
+ * Readable text for an error. SDK RPC errors are plain `{ code, message }`
+ * objects, which Discord's log relay would otherwise print as
+ * "[object Object]".
+ */
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+/**
  * Base URL for Discord REST calls. Inside the sandbox (*.discordsays.com)
  * the CSP only allows the activity's own origin, so requests go through the
  * /discord URL mapping. Under a dev "Application URL Override" the origin
@@ -91,10 +105,16 @@ async function fetchGuildNickname(
       `${discordApiBase()}/users/@me/guilds/${guildId}/member`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
-    if (!response.ok) return null;
+    if (!response.ok) {
+      // 404 here usually means the /discord URL mapping is missing; 401/403
+      // a missing guilds.members.read grant.
+      console.warn("[discord] guild member fetch failed:", response.status);
+      return null;
+    }
     const member: { nick?: string | null } = await response.json();
     return member.nick || null;
-  } catch {
+  } catch (error) {
+    console.warn("[discord] guild member fetch failed:", describeError(error));
     return null;
   }
 }
@@ -133,19 +153,38 @@ export function initDiscordClient(): Promise<DiscordSDK | null> {
     const instance = new SDK(clientId);
     await instance.ready();
 
+    console.info("[discord] SDK ready", {
+      instanceId: instance.instanceId,
+      guildId: instance.guildId,
+      channelId: instance.channelId,
+    });
+
     // Joins via the "Join" button on a friend's presence arrive as an
     // ACTIVITY_JOIN dispatch carrying the host's join secret (room:<CODE>).
     // Subscribe right after ready so the dispatch can't slip past during
-    // OAuth; a failed subscription must not take down the whole init.
-    instance
-      .subscribe("ACTIVITY_JOIN", ({ secret }) => {
-        const code = parseRoomCode(secret);
-        if (!code) return;
-        activityJoinRoomCode = code;
-        onActivityJoinRoom?.(code);
-      })
-      .catch(() => {});
+    // OAuth. Discord may reject the subscription until the user has
+    // authenticated, so a failure is retried once after authenticate(); a
+    // failed subscription must never take down the whole init.
+    const handleActivityJoin = ({ secret }: { secret: string }) => {
+      const code = parseRoomCode(secret);
+      if (!code) return;
+      activityJoinRoomCode = code;
+      onActivityJoinRoom?.(code);
+    };
+    const subscribeActivityJoin = () =>
+      instance.subscribe("ACTIVITY_JOIN", handleActivityJoin).then(
+        () => true,
+        (error) => {
+          console.warn(
+            "[discord] ACTIVITY_JOIN subscribe failed:",
+            describeError(error)
+          );
+          return false;
+        }
+      );
+    const earlySubscription = subscribeActivityJoin();
 
+    console.info("[discord] authorizing", DISCORD_CONFIG.oauthScopes);
     const { code } = await instance.commands.authorize({
       client_id: clientId,
       response_type: "code",
@@ -163,14 +202,23 @@ export function initDiscordClient(): Promise<DiscordSDK | null> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code }),
     });
-    if (!response.ok) throw new Error("Token exchange failed");
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(`Token exchange failed (${response.status}): ${body}`);
+    }
     const { access_token } = await response.json();
 
     const { user } = await instance.commands.authenticate({ access_token });
-    discordUserName =
-      (await fetchGuildNickname(instance.guildId, access_token)) ??
-      user.global_name ??
-      user.username;
+    console.info("[discord] authenticated", { userId: user.id });
+
+    if (!(await earlySubscription)) await subscribeActivityJoin();
+
+    const nickname = await fetchGuildNickname(instance.guildId, access_token);
+    discordUserName = nickname ?? user.global_name ?? user.username;
+    console.info(
+      "[discord] display name from",
+      nickname ? "guild nickname" : user.global_name ? "global_name" : "username"
+    );
 
     sdk = instance;
     return sdk;
@@ -178,7 +226,7 @@ export function initDiscordClient(): Promise<DiscordSDK | null> {
     // The SDK stays null and every Discord feature silently dies without
     // this — surface the real failure (bad client id, token-exchange 500,
     // rejected authorize) in the activity console.
-    console.error("[discord] init failed:", error);
+    console.error("[discord] init failed:", describeError(error));
     initPromise = null;
     return null;
   });

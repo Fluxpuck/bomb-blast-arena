@@ -65,6 +65,14 @@ function generateCode() {
   return code;
 }
 
+/**
+ * Timestamped log line. Only room codes, slots and instance ids are logged —
+ * never player names or game payloads.
+ */
+function log(...args) {
+  console.log(new Date().toISOString(), ...args);
+}
+
 function send(ws, message) {
   if (ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify(message));
@@ -142,6 +150,7 @@ function addSpectator(room, ws, name) {
   const spectator = { name: name || "Spectator", ws };
   room.spectators.push(spectator);
   sessions.set(ws, { room, player: spectator, isSpectator: true });
+  log(`[room ${room.code}] spectator joined (${room.spectators.length} watching)`);
   send(ws, { t: "spectating", code: room.code });
   broadcastRoom(room);
   if (room.locked) {
@@ -162,6 +171,10 @@ function leaveRoom(session) {
     room.players = room.players.filter((p) => p !== player);
   }
 
+  log(
+    `[room ${room.code}] ${wasHost ? "host" : isSpectator ? "spectator" : `slot ${player.slot}`} left`
+  );
+
   // Notify remaining members of the new roster. If the host left, close the
   // room and tell guests + spectators to return to the lobby.
   if (wasHost) {
@@ -174,11 +187,13 @@ function leaveRoom(session) {
       sessions.delete(s.ws);
     }
     roomsByCode.delete(room.code);
+    log(`[room ${room.code}] closed (host left)`);
     notifyInstance(room.instanceId);
   } else if (room.players.length + room.spectators.length > 0) {
     broadcastRoom(room);
   } else {
     roomsByCode.delete(room.code);
+    log(`[room ${room.code}] closed (empty)`);
     notifyInstance(room.instanceId);
   }
 }
@@ -204,6 +219,7 @@ function handleMessage(session, data) {
     case "lock": {
       if (session.isSpectator || !player.isHost) return;
       room.locked = true;
+      log(`[room ${room.code}] locked (match started)`);
       notifyInstance(room.instanceId);
       break;
     }
@@ -254,6 +270,7 @@ function handleMessage(session, data) {
       // next game.
       if (session.isSpectator || !player.isHost) return;
       room.locked = false;
+      log(`[room ${room.code}] unlocked (back to lobby)`);
       notifyInstance(room.instanceId);
       break;
     }
@@ -298,6 +315,7 @@ wss.on("connection", (ws) => {
       try {
         msg = JSON.parse(data.toString());
       } catch {
+        log("[connection] rejected: first message is not JSON");
         ws.close();
         return;
       }
@@ -317,11 +335,16 @@ wss.on("connection", (ws) => {
         room.players.push(player);
         roomsByCode.set(code, room);
         sessions.set(ws, { room, player, isSpectator: false });
+        log(
+          `[room ${code}] created`,
+          room.instanceId ? `(discord instance ${room.instanceId})` : "(no discord instance)"
+        );
         send(ws, { t: "created", code, slot: 0 });
         broadcastRoom(room);
       } else if (msg.t === "join") {
         const room = findRoomByCode(msg.code);
         if (!room) {
+          log(`[join] room ${msg.code} not found`);
           send(ws, { t: "error", message: "Room not found" });
           ws.close();
           return;
@@ -340,11 +363,13 @@ wss.on("connection", (ws) => {
         const player = { slot, name: msg.name || `Player ${slot + 1}`, ws, isHost: false };
         room.players.push(player);
         sessions.set(ws, { room, player, isSpectator: false });
+        log(`[room ${room.code}] player joined slot ${slot} (${room.players.length}/${MAX_PLAYERS_PER_ROOM})`);
         send(ws, { t: "joined", code: room.code, slot });
         broadcastRoom(room);
       } else if (msg.t === "spectate") {
         const room = findRoomByCode(msg.code);
         if (!room) {
+          log(`[spectate] room ${msg.code} not found`);
           send(ws, { t: "error", message: "Room not found" });
           ws.close();
           return;
@@ -355,6 +380,7 @@ wss.on("connection", (ws) => {
         // socket never joins a room.
         const instanceId = validInstanceId(msg.instanceId);
         if (!instanceId) {
+          log("[watch] rejected: invalid instance id");
           ws.close();
           return;
         }
@@ -364,8 +390,10 @@ wss.on("connection", (ws) => {
           watchersByInstance.set(instanceId, watchers);
         }
         watchers.add(ws);
+        log(`[watch] instance ${instanceId} (${watchers.size} watching)`);
         ws.on("close", () => {
           watchers.delete(ws);
+          log(`[watch] instance ${instanceId} unwatched (${watchers.size} watching)`);
           if (
             watchers.size === 0 &&
             watchersByInstance.get(instanceId) === watchers
@@ -375,6 +403,7 @@ wss.on("connection", (ws) => {
         });
         send(ws, { t: "lobbies", lobbies: instanceLobbies(instanceId) });
       } else {
+        log(`[connection] rejected: unexpected first message "${msg.t}"`);
         send(ws, { t: "error", message: "Expected create, join, spectate or watch first" });
         ws.close();
       }
