@@ -11,6 +11,11 @@
 // lives entirely in the browser clients; this server never inspects game
 // payloads.
 //
+// Rooms created inside a Discord Activity carry the Activity's instance id.
+// A socket may instead open with `watch` to subscribe to the open lobbies of
+// one instance — that powers the "Join <host>'s Lobby" buttons, so everyone
+// in the same Activity can find the host without sharing a code.
+//
 // Run with: yarn ws  (defaults to port 3001, override with WS_PORT env)
 
 const { WebSocketServer } = require("ws");
@@ -22,6 +27,9 @@ const CODE_LENGTH = 4;
 // Alphabet without ambiguous characters (no I, O, 0, 1).
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const HEARTBEAT_INTERVAL_MS = 30000;
+// Discord instance ids are opaque strings; cap them so a client can't make
+// the server hold arbitrarily large keys.
+const MAX_INSTANCE_ID_LENGTH = 128;
 
 // =========================
 // Room model
@@ -29,7 +37,7 @@ const HEARTBEAT_INTERVAL_MS = 30000;
 /**
  * @typedef {{ slot: number, name: string, ws: import("ws").WebSocket, isHost: boolean }} Player
  * @typedef {{ name: string, ws: import("ws").WebSocket }} Spectator
- * @typedef {{ code: string, players: Player[], spectators: Spectator[], locked: boolean }} Room
+ * @typedef {{ code: string, players: Player[], spectators: Spectator[], locked: boolean, instanceId: string | null }} Room
  * @typedef {{ room: Room, player: Player | Spectator, isSpectator: boolean }} Session
  */
 
@@ -37,6 +45,9 @@ const HEARTBEAT_INTERVAL_MS = 30000;
 const roomsByCode = new Map();
 /** @type {Map<import("ws").WebSocket, Session>} */
 const sessions = new Map();
+/** Sockets watching a Discord instance's lobbies, by instance id. */
+/** @type {Map<string, Set<import("ws").WebSocket>>} */
+const watchersByInstance = new Map();
 
 // =========================
 // Helpers
@@ -74,6 +85,41 @@ function broadcastRoom(room) {
   for (const s of room.spectators) {
     send(s.ws, msg);
   }
+  notifyInstance(room.instanceId);
+}
+
+function validInstanceId(value) {
+  return typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= MAX_INSTANCE_ID_LENGTH
+    ? value
+    : null;
+}
+
+/** Open lobbies hosted in one Discord instance, as sent to watchers. */
+function instanceLobbies(instanceId) {
+  const lobbies = [];
+  for (const room of roomsByCode.values()) {
+    if (room.instanceId !== instanceId) continue;
+    const host = room.players.find((p) => p.isHost);
+    if (!host) continue;
+    lobbies.push({
+      code: room.code,
+      hostName: host.name,
+      playerCount: room.players.length,
+      locked: room.locked,
+    });
+  }
+  return lobbies;
+}
+
+/** Push the current lobby list to everyone watching the room's instance. */
+function notifyInstance(instanceId) {
+  if (!instanceId) return;
+  const watchers = watchersByInstance.get(instanceId);
+  if (!watchers) return;
+  const msg = { t: "lobbies", lobbies: instanceLobbies(instanceId) };
+  for (const ws of watchers) send(ws, msg);
 }
 
 function findRoomByCode(code) {
@@ -128,10 +174,12 @@ function leaveRoom(session) {
       sessions.delete(s.ws);
     }
     roomsByCode.delete(room.code);
+    notifyInstance(room.instanceId);
   } else if (room.players.length + room.spectators.length > 0) {
     broadcastRoom(room);
   } else {
     roomsByCode.delete(room.code);
+    notifyInstance(room.instanceId);
   }
 }
 
@@ -156,6 +204,7 @@ function handleMessage(session, data) {
     case "lock": {
       if (session.isSpectator || !player.isHost) return;
       room.locked = true;
+      notifyInstance(room.instanceId);
       break;
     }
     case "setRole": {
@@ -205,6 +254,7 @@ function handleMessage(session, data) {
       // next game.
       if (session.isSpectator || !player.isHost) return;
       room.locked = false;
+      notifyInstance(room.instanceId);
       break;
     }
     case "relay": {
@@ -238,7 +288,7 @@ function handleMessage(session, data) {
 const wss = new WebSocketServer({ port: WS_PORT });
 
 wss.on("connection", (ws) => {
-  // First message must be `create` or `join`. Subsequent messages are handled
+  // First message must be `create`, `join`, `spectate` or `watch`. Subsequent messages are handled
   // by handleMessage once the session is established.
   let registered = false;
 
@@ -256,7 +306,13 @@ wss.on("connection", (ws) => {
       if (msg.t === "create") {
         const code = generateCode();
         /** @type {Room} */
-        const room = { code, players: [], spectators: [], locked: false };
+        const room = {
+          code,
+          players: [],
+          spectators: [],
+          locked: false,
+          instanceId: validInstanceId(msg.instanceId),
+        };
         const player = { slot: 0, name: msg.name || "Host", ws, isHost: true };
         room.players.push(player);
         roomsByCode.set(code, room);
@@ -294,8 +350,32 @@ wss.on("connection", (ws) => {
           return;
         }
         addSpectator(room, ws, msg.name);
+      } else if (msg.t === "watch") {
+        // Receive-only subscription to one Discord instance's lobbies; the
+        // socket never joins a room.
+        const instanceId = validInstanceId(msg.instanceId);
+        if (!instanceId) {
+          ws.close();
+          return;
+        }
+        let watchers = watchersByInstance.get(instanceId);
+        if (!watchers) {
+          watchers = new Set();
+          watchersByInstance.set(instanceId, watchers);
+        }
+        watchers.add(ws);
+        ws.on("close", () => {
+          watchers.delete(ws);
+          if (
+            watchers.size === 0 &&
+            watchersByInstance.get(instanceId) === watchers
+          ) {
+            watchersByInstance.delete(instanceId);
+          }
+        });
+        send(ws, { t: "lobbies", lobbies: instanceLobbies(instanceId) });
       } else {
-        send(ws, { t: "error", message: "Expected create, join or spectate first" });
+        send(ws, { t: "error", message: "Expected create, join, spectate or watch first" });
         ws.close();
       }
       return;

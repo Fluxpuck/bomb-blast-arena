@@ -11,6 +11,7 @@ import { PlayersHUD } from "../components/screens/playerHud";
 import { StartScreen } from "../components/screens/startScreen";
 import { TouchControls } from "../components/touchControls";
 import {
+  getDiscordInstanceId,
   getDiscordUserName,
   getLaunchRoomCode,
   initDiscordClient,
@@ -58,10 +59,12 @@ import {
   startHosting,
   stopHosting,
 } from "../game/net/host";
+import { watchInstanceLobbies } from "../game/net/instanceLobbies";
 import { roomClient } from "../game/net/roomClient";
 import { Direction, GameMode, GameState } from "../types/game";
 import {
   GamePayload,
+  InstanceLobby,
   RoomPlayer,
   RoomRole,
   RoomSpectator,
@@ -122,6 +125,9 @@ export default function Home() {
   // Authenticated Discord display name — the default lobby nickname and the
   // identity used when auto-joining a room from a Discord invite/Join.
   const discordNameRef = useRef<string | null>(null);
+  // Open lobbies hosted by others in the same Discord Activity instance —
+  // rendered as one-click "Join <host>'s Lobby" buttons.
+  const [instanceLobbies, setInstanceLobbies] = useState<InstanceLobby[]>([]);
 
   // =========================
   // Relay dispatch (kept in a ref so the roomClient callback always calls
@@ -298,6 +304,20 @@ export default function Home() {
       if (code) joinFromDiscordRef.current(code);
     });
   }, []);
+
+  // Watch the Activity instance's lobbies once the SDK is ready (the
+  // instance id is only known after init).
+  useEffect(() => {
+    if (!discordReady) return;
+    const instanceId = getDiscordInstanceId();
+    if (!instanceId) return;
+    return watchInstanceLobbies(instanceId, setInstanceLobbies);
+  }, [discordReady]);
+
+  // Our own room never shows up as a lobby to join.
+  const joinableLobbies = instanceLobbies.filter(
+    (lobby) => lobby.code !== lobbyState.code
+  );
 
   // =========================
   // Escape key (pause) — disabled in online games
@@ -800,7 +820,12 @@ export default function Home() {
 
         {/* Start Screen */}
         {gameState === GameState.START && (
-          <StartScreen onStart={handleGameStart} onMultiplayer={handleMultiplayer} />
+          <StartScreen
+            onStart={handleGameStart}
+            onMultiplayer={handleMultiplayer}
+            lobbies={joinableLobbies}
+            onJoinLobby={(code) => joinFromDiscordRef.current(code)}
+          />
         )}
 
         {/* Map Select Screen */}
@@ -823,6 +848,7 @@ export default function Home() {
             error={lobbyState.error}
             connecting={lobbyState.connecting}
             initialJoinCode={inviteJoinCode}
+            lobbies={joinableLobbies}
             onCreate={handleCreateRoom}
             onJoin={handleJoinRoom}
             onSwitchRole={handleSwitchRole}

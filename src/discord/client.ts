@@ -35,6 +35,14 @@ export function getDiscordSdk(): DiscordSDK | null {
   return sdk;
 }
 
+/**
+ * The Activity instance id — shared by everyone in the same Activity
+ * session — or null outside Discord / before init.
+ */
+export function getDiscordInstanceId(): string | null {
+  return sdk?.instanceId ?? null;
+}
+
 /** Extract the room code from a `room:<CODE>` value, or null. */
 function parseRoomCode(value: string | null): string | null {
   if (!value) return null;

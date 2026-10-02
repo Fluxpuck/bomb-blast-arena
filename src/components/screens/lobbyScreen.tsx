@@ -1,6 +1,11 @@
 import { useRef, useState } from "react";
 import { NET_CONFIG } from "../../game/core/config";
-import { RoomPlayer, RoomRole, RoomSpectator } from "../../types/multiplayer";
+import {
+  InstanceLobby,
+  RoomPlayer,
+  RoomRole,
+  RoomSpectator,
+} from "../../types/multiplayer";
 import {
   Button,
   Checkbox,
@@ -15,11 +20,14 @@ import {
   Screen,
   TextInput,
 } from "../ui";
+import { lobbyButtonLabel } from "./startScreen";
 
 interface LobbyScreenProps {
   roomCode: string | null;
   /** Pre-fills the join box — set when launched from a Discord invite. */
   initialJoinCode?: string;
+  /** Lobbies hosted in the same Discord Activity (empty outside Discord). */
+  lobbies?: InstanceLobby[];
   players: RoomPlayer[];
   spectators: RoomSpectator[];
   isHost: boolean;
@@ -43,6 +51,7 @@ const SLOT_COLORS = ["#60a5fa", "#ef4444", "#4ade80", "#a78bfa"];
 export function LobbyScreen({
   roomCode,
   initialJoinCode = "",
+  lobbies = [],
   players,
   spectators,
   isHost,
@@ -139,6 +148,20 @@ export function LobbyScreen({
                 placeholder="Enter a nickname"
               />
             </div>
+
+            {/* One-click joins for lobbies in the same Discord Activity. */}
+            {lobbies.map((lobby) => (
+              <Button
+                key={lobby.code}
+                block
+                variant="discord"
+                size="lg"
+                disabled={!name.trim() || connecting}
+                onClick={() => onJoin(lobby.code, name.trim())}
+              >
+                {lobbyButtonLabel(lobby)}
+              </Button>
+            ))}
 
             <Button
               block

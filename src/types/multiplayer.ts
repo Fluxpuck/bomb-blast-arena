@@ -3,7 +3,7 @@
 // =========================
 // Shared between the browser client (roomClient/host/guest) and the relay
 // server. The server only uses the connection-management messages
-// (create/join/spectate/setRole/leave/lock/relay); the game payload types are
+// (create/join/spectate/watch/setRole/leave/lock/relay); the game payload types are
 // used by clients.
 
 import { TileKind } from "../game/assets/blocks";
@@ -30,6 +30,18 @@ export interface RoomSpectator {
 /** The role a room member holds: a player takes a slot, a spectator watches. */
 export type RoomRole = "player" | "spectator";
 
+/**
+ * An open lobby hosted inside the same Discord Activity instance, pushed to
+ * `watch` subscribers so participants can join without a code.
+ */
+export interface InstanceLobby {
+  code: string;
+  hostName: string;
+  playerCount: number;
+  /** True while a match is running — joining then lands as a spectator. */
+  locked: boolean;
+}
+
 /** How a slot in the local roster is controlled. */
 export type ControlKind = "local" | "remote" | "computer";
 
@@ -46,9 +58,12 @@ export interface RosterEntry {
 // =========================
 
 export type ClientToServerMessage =
-  | { t: "create"; name: string }
+  /** instanceId tags the room with its Discord Activity instance. */
+  | { t: "create"; name: string; instanceId?: string }
   | { t: "join"; code: string; name: string }
   | { t: "spectate"; code: string; name: string }
+  /** Subscribe to one Discord instance's lobbies (never joins a room). */
+  | { t: "watch"; instanceId: string }
   | { t: "setRole"; role: RoomRole }
   | { t: "leave" }
   | { t: "lock" }
@@ -62,6 +77,7 @@ export type ServerToClientMessage =
   | { t: "room"; code: string; players: RoomPlayer[]; spectators: RoomSpectator[] }
   | { t: "error"; message: string }
   | { t: "hostLeft" }
+  | { t: "lobbies"; lobbies: InstanceLobby[] }
   /** Sent to the host when a spectator joins a locked (in-progress) room. */
   | { t: "spectatorJoined" }
   | { t: "relay"; from: number; payload: GamePayload };

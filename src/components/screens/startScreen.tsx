@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { GameMode } from "../../types/game";
+import { InstanceLobby } from "../../types/multiplayer";
 import { Bomb, Bomber, Tile, type TileKind } from "../sprites";
 import { isTouchDevice } from "../touchControls";
 import { Button, cx, type ButtonVariant } from "../ui";
@@ -13,6 +14,9 @@ import { Button, cx, type ButtonVariant } from "../ui";
 interface StartScreenProps {
   onStart: (mode: GameMode) => void;
   onMultiplayer: () => void;
+  /** Lobbies hosted in the same Discord Activity (empty outside Discord). */
+  lobbies?: InstanceLobby[];
+  onJoinLobby?: (code: string) => void;
 }
 
 const BUNGEE = "var(--font-bungee), 'Bungee', sans-serif";
@@ -94,11 +98,26 @@ const TOUCH_BUTTON_STYLE = {
   borderRadius: 10,
 } as CSSProperties;
 
+/**
+ * "Join Alice's Lobby (2/4)". Mid-match or full, the relay lands the join
+ * as a spectator, so the label says "Watch" instead.
+ */
+export function lobbyButtonLabel(lobby: InstanceLobby): string {
+  if (lobby.locked) return `Watch ${lobby.hostName}'s Game`;
+  if (lobby.playerCount >= 4) return `Watch ${lobby.hostName}'s Lobby (full)`;
+  return `Join ${lobby.hostName}'s Lobby (${lobby.playerCount}/4)`;
+}
+
 function Abs({ style, children }: { style: CSSProperties; children: ReactNode }) {
   return <div style={{ position: "absolute", ...style }}>{children}</div>;
 }
 
-export function StartScreen({ onStart, onMultiplayer }: StartScreenProps) {
+export function StartScreen({
+  onStart,
+  onMultiplayer,
+  lobbies = [],
+  onJoinLobby,
+}: StartScreenProps) {
   const vp = useViewport();
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuScale, setMenuScale] = useState(1);
@@ -288,6 +307,20 @@ export function StartScreen({ onStart, onMultiplayer }: StartScreenProps) {
                 </Button>
               ))}
             </div>
+            {/* One-click joins for lobbies in the same Discord Activity. */}
+            {onJoinLobby &&
+              lobbies.map((lobby) => (
+                <Button
+                  key={lobby.code}
+                  block
+                  variant="discord"
+                  size={portrait && !mobilePortrait ? "lg" : undefined}
+                  style={mobilePortrait ? TOUCH_BUTTON_STYLE : portrait ? undefined : buttonSize}
+                  onClick={() => onJoinLobby(lobby.code)}
+                >
+                  {lobbyButtonLabel(lobby)}
+                </Button>
+              ))}
             <Button
               block
               variant={modeVariant.online}

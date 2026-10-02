@@ -246,6 +246,49 @@ async function run() {
   frank.close();
   gina.close();
 
+  // --- Discord instance lobbies: watchers see rooms tagged with their id ---
+  const instanceId = `instance-${Date.now()}`;
+  const watcher = new WebSocket(WS_URL);
+  await new Promise((r) => (watcher.onopen = r));
+  const watcherQ = queued(watcher);
+  send(watcher, { t: "watch", instanceId });
+  const emptyLobbies = await watcherQ.recv();
+  assert(emptyLobbies.t === "lobbies" && emptyLobbies.lobbies.length === 0, "watcher gets empty lobby list");
+
+  const discordHost = new WebSocket(WS_URL);
+  await new Promise((r) => (discordHost.onopen = r));
+  const discordHostQ = queued(discordHost);
+  send(discordHost, { t: "create", name: "Hana", instanceId });
+  const discordCreated = await discordHostQ.recv();
+  const listed = await watcherQ.recv();
+  assert(
+    listed.t === "lobbies" &&
+      listed.lobbies.length === 1 &&
+      listed.lobbies[0].code === discordCreated.code &&
+      listed.lobbies[0].hostName === "Hana" &&
+      listed.lobbies[0].playerCount === 1,
+    "watcher sees the instance's new lobby with host name"
+  );
+
+  // A room without the instance id stays invisible to the watcher.
+  const otherHost = new WebSocket(WS_URL);
+  await new Promise((r) => (otherHost.onopen = r));
+  send(otherHost, { t: "create", name: "Ivan" });
+
+  send(discordHost, { t: "lock" });
+  const lockedList = await watcherQ.recv();
+  assert(
+    lockedList.lobbies.length === 1 && lockedList.lobbies[0].locked === true,
+    "watcher sees lobby lock (untagged room not listed)"
+  );
+
+  discordHost.close();
+  const closedList = await watcherQ.recv();
+  assert(closedList.lobbies.length === 0, "watcher sees lobby removed when host leaves");
+
+  watcher.close();
+  otherHost.close();
+
   // Let in-flight socket closes settle before exiting — exiting mid-close
   // trips a libuv assertion on Windows.
   await new Promise((r) => setTimeout(r, 300));

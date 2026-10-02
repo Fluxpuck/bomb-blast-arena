@@ -1,4 +1,4 @@
-import { isDiscordActivity } from "../../discord/client";
+import { getDiscordInstanceId, isDiscordActivity } from "../../discord/client";
 import {
   ClientToServerMessage,
   GamePayload,
@@ -25,7 +25,7 @@ import { DISCORD_CONFIG, getServerUrl } from "../core/config";
  * server URL doesn't apply there. Under a dev "Application URL Override"
  * the origin isn't discordsays.com; dial the configured server directly.
  */
-function relayWsUrl(): string {
+export function relayWsUrl(): string {
   if (
     typeof window !== "undefined" &&
     isDiscordActivity() &&
@@ -191,7 +191,12 @@ class RoomClient {
 
   public createRoom(name: string) {
     this.name = name;
-    this.send({ t: "create", name });
+    // Tag Discord-hosted rooms with the Activity instance so everyone in
+    // the same Activity sees a "Join <host>'s Lobby" button.
+    const instanceId = getDiscordInstanceId();
+    this.send(
+      instanceId ? { t: "create", name, instanceId } : { t: "create", name }
+    );
   }
 
   /**
