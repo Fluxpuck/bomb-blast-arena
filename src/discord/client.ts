@@ -23,6 +23,20 @@ let activityJoinRoomCode: string | null = null;
 // one-click room joins.
 let discordUserName: string | null = null;
 let onActivityJoinRoom: ((code: string) => void) | null = null;
+// The Activity instance id, known as soon as the SDK handshake completes —
+// before, and independent of, OAuth — so lobby discovery and room tagging
+// keep working for a participant whose login fails or is declined.
+let instanceId: string | null = null;
+let instanceIdSettled = false;
+const instanceIdWaiters = new Set<(id: string | null) => void>();
+
+function settleInstanceId(id: string | null): void {
+  if (instanceIdSettled) return;
+  instanceIdSettled = true;
+  instanceId = id;
+  for (const resolve of instanceIdWaiters) resolve(id);
+  instanceIdWaiters.clear();
+}
 
 /** True when the page is loaded inside Discord's Activity iframe. */
 export function isDiscordActivity(): boolean {
@@ -37,10 +51,22 @@ export function getDiscordSdk(): DiscordSDK | null {
 
 /**
  * The Activity instance id — shared by everyone in the same Activity
- * session — or null outside Discord / before init.
+ * session — or null outside Discord / before the SDK handshake. Does not
+ * require OAuth.
  */
 export function getDiscordInstanceId(): string | null {
-  return sdk?.instanceId ?? null;
+  return instanceId;
+}
+
+/**
+ * Resolves with the Activity instance id once the SDK handshake completes
+ * (no OAuth needed), or null outside Discord / when the handshake fails.
+ */
+export function whenDiscordInstanceReady(): Promise<string | null> {
+  if (instanceIdSettled || !isDiscordActivity()) {
+    return Promise.resolve(instanceId);
+  }
+  return new Promise((resolve) => instanceIdWaiters.add(resolve));
 }
 
 /** Extract the room code from a `room:<CODE>` value, or null. */
@@ -144,6 +170,7 @@ export function initDiscordClient(): Promise<DiscordSDK | null> {
     console.warn(
       "[discord] NEXT_PUBLIC_DISCORD_CLIENT_ID is not set — Discord features disabled"
     );
+    settleInstanceId(null);
     return Promise.resolve(null);
   }
 
@@ -152,37 +179,13 @@ export function initDiscordClient(): Promise<DiscordSDK | null> {
 
     const instance = new SDK(clientId);
     await instance.ready();
+    settleInstanceId(instance.instanceId);
 
     console.info("[discord] SDK ready", {
       instanceId: instance.instanceId,
       guildId: instance.guildId,
       channelId: instance.channelId,
     });
-
-    // Joins via the "Join" button on a friend's presence arrive as an
-    // ACTIVITY_JOIN dispatch carrying the host's join secret (room:<CODE>).
-    // Subscribe right after ready so the dispatch can't slip past during
-    // OAuth. Discord may reject the subscription until the user has
-    // authenticated, so a failure is retried once after authenticate(); a
-    // failed subscription must never take down the whole init.
-    const handleActivityJoin = ({ secret }: { secret: string }) => {
-      const code = parseRoomCode(secret);
-      if (!code) return;
-      activityJoinRoomCode = code;
-      onActivityJoinRoom?.(code);
-    };
-    const subscribeActivityJoin = () =>
-      instance.subscribe("ACTIVITY_JOIN", handleActivityJoin).then(
-        () => true,
-        (error) => {
-          console.warn(
-            "[discord] ACTIVITY_JOIN subscribe failed:",
-            describeError(error)
-          );
-          return false;
-        }
-      );
-    const earlySubscription = subscribeActivityJoin();
 
     console.info("[discord] authorizing", DISCORD_CONFIG.oauthScopes);
     const { code } = await instance.commands.authorize({
@@ -211,7 +214,24 @@ export function initDiscordClient(): Promise<DiscordSDK | null> {
     const { user } = await instance.commands.authenticate({ access_token });
     console.info("[discord] authenticated", { userId: user.id });
 
-    if (!(await earlySubscription)) await subscribeActivityJoin();
+    // Joins via the "Join" button on a friend's presence arrive as an
+    // ACTIVITY_JOIN dispatch carrying the host's join secret (room:<CODE>).
+    // Discord rejects this subscription before authenticate() (RPC error
+    // 4006 "Not authenticated or invalid scope"), so it must come after. A
+    // failed subscription must never take down the whole init.
+    await instance
+      .subscribe("ACTIVITY_JOIN", ({ secret }) => {
+        const roomCode = parseRoomCode(secret);
+        if (!roomCode) return;
+        activityJoinRoomCode = roomCode;
+        onActivityJoinRoom?.(roomCode);
+      })
+      .catch((error) => {
+        console.warn(
+          "[discord] ACTIVITY_JOIN subscribe failed:",
+          describeError(error)
+        );
+      });
 
     const nickname = await fetchGuildNickname(instance.guildId, access_token);
     discordUserName = nickname ?? user.global_name ?? user.username;
@@ -228,6 +248,9 @@ export function initDiscordClient(): Promise<DiscordSDK | null> {
     // rejected authorize) in the activity console.
     console.error("[discord] init failed:", describeError(error));
     initPromise = null;
+    // A failure before ready() leaves the instance id unknown; release any
+    // waiters. After ready() this is a no-op — the id stays usable.
+    settleInstanceId(null);
     return null;
   });
 

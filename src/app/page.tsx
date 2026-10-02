@@ -11,12 +11,12 @@ import { PlayersHUD } from "../components/screens/playerHud";
 import { StartScreen } from "../components/screens/startScreen";
 import { TouchControls } from "../components/touchControls";
 import {
-  getDiscordInstanceId,
   getDiscordUserName,
   getLaunchRoomCode,
   initDiscordClient,
   isDiscordActivity,
   setOnActivityJoinRoom,
+  whenDiscordInstanceReady,
 } from "../discord/client";
 import { updatePresence } from "../discord/presence";
 import { GAME_CONFIG } from "../game/core/config";
@@ -305,14 +305,22 @@ export default function Home() {
     });
   }, []);
 
-  // Watch the Activity instance's lobbies once the SDK is ready (the
-  // instance id is only known after init).
+  // Watch the Activity instance's lobbies as soon as the SDK handshake
+  // completes — not gated on OAuth, so a participant whose login fails or
+  // is declined still sees the join buttons (they just type a nickname).
   useEffect(() => {
-    if (!discordReady) return;
-    const instanceId = getDiscordInstanceId();
-    if (!instanceId) return;
-    return watchInstanceLobbies(instanceId, setInstanceLobbies);
-  }, [discordReady]);
+    if (!isDiscordActivity()) return;
+    let cancelled = false;
+    let unwatch: (() => void) | null = null;
+    whenDiscordInstanceReady().then((instanceId) => {
+      if (cancelled || !instanceId) return;
+      unwatch = watchInstanceLobbies(instanceId, setInstanceLobbies);
+    });
+    return () => {
+      cancelled = true;
+      unwatch?.();
+    };
+  }, []);
 
   // Our own room never shows up as a lobby to join.
   const joinableLobbies = instanceLobbies.filter(

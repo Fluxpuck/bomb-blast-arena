@@ -241,7 +241,9 @@ falling back to a pre-filled join box if auth yielded no name — and the
 relay rejects the join when the room is full or already started.
 
 Rooms created inside an Activity are tagged with the SDK `instanceId`
-(shared by everyone in the same Activity). `net/instanceLobbies.ts` opens a
+(shared by everyone in the same Activity). The id is known right after the
+SDK handshake (`whenDiscordInstanceReady()`), before OAuth, so lobby
+discovery keeps working when a participant's login fails or is declined. `net/instanceLobbies.ts` opens a
 separate receive-only socket that sends `{ t: "watch", instanceId }`; the
 relay pushes `{ t: "lobbies" }` on every change, and the start + lobby
 screens render one-click "Join <host>'s Lobby" buttons (or "Watch" when the
