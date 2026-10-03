@@ -42,6 +42,26 @@ export interface InstanceLobby {
   locked: boolean;
 }
 
+/**
+ * A public lobby, as listed by the relay's `browse` message — any room the
+ * host didn't mark private. Sorted by latencyMs ascending before paging.
+ */
+export interface PublicLobby {
+  code: string;
+  hostName: string;
+  playerCount: number;
+  /** Always 4 — a lobby is full when playerCount reaches it. */
+  maxPlayers: number;
+  /** True while a match is running — joining then lands as a spectator. */
+  locked: boolean;
+  /**
+   * Round-trip latency between the relay and this lobby's host, measured by
+   * the relay's heartbeat pings (the variable half of a guest's
+   * client -> relay -> host path). Null until the first pong arrives.
+   */
+  latencyMs: number | null;
+}
+
 /** How a slot in the local roster is controlled. */
 export type ControlKind = "local" | "remote" | "computer";
 
@@ -58,12 +78,14 @@ export interface RosterEntry {
 // =========================
 
 export type ClientToServerMessage =
-  /** instanceId tags the room with its Discord Activity instance. */
-  | { t: "create"; name: string; instanceId?: string }
+  /** instanceId tags the room with its Discord Activity instance; isPublic opts the room out of the public lobby list when false (public by default). */
+  | { t: "create"; name: string; instanceId?: string; isPublic?: boolean }
   | { t: "join"; code: string; name: string }
   | { t: "spectate"; code: string; name: string }
   /** Subscribe to one Discord instance's lobbies (never joins a room). */
   | { t: "watch"; instanceId: string }
+  /** Request one page of the public lobby list (0-based page). */
+  | { t: "browse"; page: number; pageSize: number }
   | { t: "setRole"; role: RoomRole }
   | { t: "leave" }
   | { t: "lock" }
@@ -78,6 +100,8 @@ export type ServerToClientMessage =
   | { t: "error"; message: string }
   | { t: "hostLeft" }
   | { t: "lobbies"; lobbies: InstanceLobby[] }
+  /** One page of the public lobby list, in response to `browse`. */
+  | { t: "lobbyList"; lobbies: PublicLobby[]; page: number; pageSize: number; total: number }
   /** Sent to the host when a spectator joins a locked (in-progress) room. */
   | { t: "spectatorJoined" }
   | { t: "relay"; from: number; payload: GamePayload };

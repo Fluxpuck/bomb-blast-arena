@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { NET_CONFIG } from "../../game/core/config";
+import { usePublicLobbies } from "../../hooks/usePublicLobbies";
 import {
   InstanceLobby,
   RoomPlayer,
@@ -13,6 +14,7 @@ import {
   Dot,
   ErrorText,
   Heading,
+  Hint,
   INPUT_BASE,
   Label,
   LinkButton,
@@ -36,7 +38,7 @@ interface LobbyScreenProps {
   myName: string;
   error: string | null;
   connecting: boolean;
-  onCreate: (name: string) => void;
+  onCreate: (name: string, isPublic: boolean) => void;
   onJoin: (code: string, name: string) => void;
   /** Switch between player and spectator while in the room lobby. */
   onSwitchRole: (role: RoomRole) => void;
@@ -76,6 +78,10 @@ export function LobbyScreen({
   }
   const [joinCode, setJoinCode] = useState(initialJoinCode);
   const [fillBots, setFillBots] = useState(true);
+  // Rooms join the public server list unless the creator opts out.
+  const [isPublic, setIsPublic] = useState(true);
+  // Fetching stops inside a room — the list is irrelevant there.
+  const serverList = usePublicLobbies(roomCode === null);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const codeRef = useRef<HTMLSpanElement>(null);
@@ -163,19 +169,122 @@ export function LobbyScreen({
               </Button>
             ))}
 
+            <label className="flex items-center gap-3 text-sm cursor-pointer select-none">
+              <Checkbox
+                checked={isPublic}
+                onChange={(e) => setIsPublic(e.target.checked)}
+              />
+              List this lobby publicly
+            </label>
+
             <Button
               block
               variant="purple"
               size="lg"
               disabled={!name.trim() || connecting}
-              onClick={() => onCreate(name.trim())}
+              onClick={() => onCreate(name.trim(), isPublic)}
             >
               {connecting ? "Connecting…" : "Create Room"}
             </Button>
 
             <div className="flex items-center gap-3">
               <span className="flex-1 h-px bg-ui-line" />
-              <Label>or join</Label>
+              <Label>public servers</Label>
+              <span className="flex-1 h-px bg-ui-line" />
+            </div>
+
+            {/* Public lobby list, sorted by relay-measured host latency.
+                Full or in-game lobbies land the join as a spectator, so the
+                button says "Watch" — same rule as the Discord lobby flow. */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>Nearby lobbies ({serverList.total})</Label>
+                <LinkButton
+                  disabled={serverList.loading}
+                  onClick={serverList.refresh}
+                >
+                  {serverList.loading ? "Loading…" : "Refresh"}
+                </LinkButton>
+              </div>
+              <div className="flex flex-col gap-2">
+                {serverList.lobbies.map((lobby) => {
+                  const isFull = lobby.playerCount >= lobby.maxPlayers;
+                  const status = lobby.locked ? "In game" : isFull ? "Full" : "Open";
+                  return (
+                    <div
+                      key={lobby.code}
+                      className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-white/[.04] border border-[rgba(124,196,255,.14)]"
+                    >
+                      <span className="flex items-center gap-2 font-bold min-w-0">
+                        <Dot
+                          color={
+                            lobby.locked
+                              ? "#f59e0b"
+                              : isFull
+                                ? "#ef4444"
+                                : "#4ade80"
+                          }
+                        />
+                        <span className="truncate">{lobby.hostName}&rsquo;s lobby</span>
+                      </span>
+                      <span className="flex items-center gap-3 shrink-0">
+                        <Label>
+                          {lobby.latencyMs === null
+                            ? "– ms"
+                            : `${lobby.latencyMs} ms`}
+                        </Label>
+                        <Label
+                          className={cx(
+                            (lobby.locked || isFull) && "text-ui-danger!"
+                          )}
+                        >
+                          {status} · {lobby.playerCount}/{lobby.maxPlayers}
+                        </Label>
+                        <Button
+                          variant={lobby.locked || isFull ? "neutral" : "green"}
+                          size="sm"
+                          disabled={!name.trim() || connecting}
+                          onClick={() => onJoin(lobby.code, name.trim())}
+                        >
+                          {lobby.locked || isFull ? "Watch" : "Join"}
+                        </Button>
+                      </span>
+                    </div>
+                  );
+                })}
+                {serverList.error && <Hint>{serverList.error}</Hint>}
+                {serverList.total === 0 && !serverList.loading && !serverList.error && (
+                  <Hint>No public lobbies right now</Hint>
+                )}
+              </div>
+              {serverList.total > serverList.pageSize && (
+                <div className="flex items-center justify-between mt-2">
+                  <LinkButton
+                    disabled={serverList.page === 0 || serverList.loading}
+                    onClick={() => serverList.setPage(serverList.page - 1)}
+                  >
+                    ← Prev
+                  </LinkButton>
+                  <Label>
+                    Page {serverList.page + 1} of{" "}
+                    {Math.max(1, Math.ceil(serverList.total / serverList.pageSize))}
+                  </Label>
+                  <LinkButton
+                    disabled={
+                      (serverList.page + 1) * serverList.pageSize >= serverList.total ||
+                      serverList.loading
+                    }
+                    onClick={() => serverList.setPage(serverList.page + 1)}
+                  >
+                    Next →
+                  </LinkButton>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="flex-1 h-px bg-ui-line" />
+              <Label>or join with code</Label>
               <span className="flex-1 h-px bg-ui-line" />
             </div>
 
