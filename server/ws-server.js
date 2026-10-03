@@ -16,6 +16,12 @@
 // one instance — that powers the "Join <host>'s Lobby" buttons, so everyone
 // in the same Activity can find the host without sharing a code.
 //
+// Rooms are public by default: any socket may open with `browse` and keep
+// sending `{t:"browse", page, pageSize}` requests to page through the public
+// lobby list, sorted by the relay-measured round-trip latency to each lobby's
+// host (the variable half of a guest's client -> relay -> host path). Rooms
+// created with `isPublic:false` are never listed.
+//
 // Run with: yarn ws  (defaults to port 3001, override with WS_PORT env)
 
 const { WebSocketServer } = require("ws");
@@ -27,6 +33,8 @@ const CODE_LENGTH = 4;
 // Alphabet without ambiguous characters (no I, O, 0, 1).
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const HEARTBEAT_INTERVAL_MS = 30000;
+const DEFAULT_LOBBY_PAGE_SIZE = 8;
+const MAX_LOBBY_PAGE_SIZE = 50;
 // Discord instance ids are opaque strings; cap them so a client can't make
 // the server hold arbitrarily large keys.
 const MAX_INSTANCE_ID_LENGTH = 128;
@@ -37,8 +45,8 @@ const MAX_INSTANCE_ID_LENGTH = 128;
 /**
  * @typedef {{ slot: number, name: string, ws: import("ws").WebSocket, isHost: boolean }} Player
  * @typedef {{ name: string, ws: import("ws").WebSocket }} Spectator
- * @typedef {{ code: string, players: Player[], spectators: Spectator[], locked: boolean, instanceId: string | null }} Room
- * @typedef {{ room: Room, player: Player | Spectator, isSpectator: boolean }} Session
+ * @typedef {{ code: string, players: Player[], spectators: Spectator[], locked: boolean, instanceId: string | null, isPublic: boolean }} Room
+ * @typedef {{ room: Room, player: Player | Spectator, isSpectator: boolean } | { browser: true, ws: import("ws").WebSocket }} Session
  */
 
 /** @type {Map<string, Room>} */
@@ -119,6 +127,53 @@ function instanceLobbies(instanceId) {
     });
   }
   return lobbies;
+}
+
+/**
+ * All public rooms as browse entries, sorted by the relay's measured
+ * round-trip latency to each lobby's host. Rooms whose host hasn't answered
+ * one heartbeat ping yet (latencyMs null) sort last, then by code for a
+ * stable order.
+ */
+function publicLobbies() {
+  const lobbies = [];
+  for (const room of roomsByCode.values()) {
+    if (!room.isPublic) continue;
+    const host = room.players.find((p) => p.isHost);
+    if (!host) continue;
+    lobbies.push({
+      code: room.code,
+      hostName: host.name,
+      playerCount: room.players.length,
+      maxPlayers: MAX_PLAYERS_PER_ROOM,
+      locked: room.locked,
+      latencyMs: typeof host.ws.bbaRttMs === "number" ? host.ws.bbaRttMs : null,
+    });
+  }
+  lobbies.sort(
+    (a, b) =>
+      (a.latencyMs ?? Infinity) - (b.latencyMs ?? Infinity) ||
+      a.code.localeCompare(b.code)
+  );
+  return lobbies;
+}
+
+/** Answer one `{t:"browse", page, pageSize}` request (0-based page). */
+function sendLobbyList(ws, msg) {
+  const pageSize = Math.min(
+    Math.max(parseInt(msg.pageSize, 10) || DEFAULT_LOBBY_PAGE_SIZE, 1),
+    MAX_LOBBY_PAGE_SIZE
+  );
+  const all = publicLobbies();
+  const pageCount = Math.max(1, Math.ceil(all.length / pageSize));
+  const page = Math.min(Math.max(parseInt(msg.page, 10) || 0, 0), pageCount - 1);
+  send(ws, {
+    t: "lobbyList",
+    lobbies: all.slice(page * pageSize, (page + 1) * pageSize),
+    page,
+    pageSize,
+    total: all.length,
+  });
 }
 
 /** Push the current lobby list to everyone watching the room's instance. */
@@ -207,6 +262,13 @@ function handleMessage(session, data) {
   try {
     msg = JSON.parse(data.toString());
   } catch {
+    return;
+  }
+
+  // Browser sockets never join a room: the only message they may send is a
+  // repeated browse request, answered with the requested page.
+  if (session.browser) {
+    if (msg.t === "browse") sendLobbyList(session.ws, msg);
     return;
   }
 
@@ -330,6 +392,8 @@ wss.on("connection", (ws) => {
           spectators: [],
           locked: false,
           instanceId: validInstanceId(msg.instanceId),
+          // Rooms join the public lobby list unless the creator opts out.
+          isPublic: msg.isPublic !== false,
         };
         const player = { slot: 0, name: msg.name || "Host", ws, isHost: true };
         room.players.push(player);
@@ -366,6 +430,12 @@ wss.on("connection", (ws) => {
         log(`[room ${room.code}] player joined slot ${slot} (${room.players.length}/${MAX_PLAYERS_PER_ROOM})`);
         send(ws, { t: "joined", code: room.code, slot });
         broadcastRoom(room);
+      } else if (msg.t === "browse") {
+        // Read-only socket for the public lobby list; never joins a room.
+        // The socket stays open so the client can page or refresh with
+        // further browse requests handled by handleMessage.
+        sessions.set(ws, { browser: true, ws });
+        sendLobbyList(ws, msg);
       } else if (msg.t === "spectate") {
         const room = findRoomByCode(msg.code);
         if (!room) {
@@ -404,7 +474,7 @@ wss.on("connection", (ws) => {
         send(ws, { t: "lobbies", lobbies: instanceLobbies(instanceId) });
       } else {
         log(`[connection] rejected: unexpected first message "${msg.t}"`);
-        send(ws, { t: "error", message: "Expected create, join, spectate or watch first" });
+        send(ws, { t: "error", message: "Expected create, join, spectate, watch or browse first" });
         ws.close();
       }
       return;
@@ -415,10 +485,16 @@ wss.on("connection", (ws) => {
     handleMessage(session, data);
   });
 
+  ws.on("pong", () => {
+    if (typeof ws.bbaPingSentAt === "number") {
+      ws.bbaRttMs = Date.now() - ws.bbaPingSentAt;
+    }
+  });
+
   ws.on("close", () => {
     const session = sessions.get(ws);
     if (session) {
-      leaveRoom(session);
+      if (!session.browser) leaveRoom(session);
       sessions.delete(ws);
     }
   });
@@ -434,6 +510,9 @@ wss.on("connection", (ws) => {
 setInterval(() => {
   for (const ws of wss.clients) {
     if (ws.readyState === ws.OPEN) {
+      // Stamp before pinging so the pong handler can record the RTT — that
+      // becomes the latency shown on the public lobby list.
+      ws.bbaPingSentAt = Date.now();
       ws.ping();
     }
   }

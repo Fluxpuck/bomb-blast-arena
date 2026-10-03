@@ -289,6 +289,84 @@ async function run() {
   watcher.close();
   otherHost.close();
 
+  // --- Public lobby list: browse pages public rooms only ---
+  const browser = new WebSocket(WS_URL);
+  await new Promise((r) => (browser.onopen = r));
+  const browserQ = queued(browser);
+  send(browser, { t: "browse", page: 0, pageSize: 8 });
+  const emptyList = await browserQ.recv();
+  assert(
+    emptyList.t === "lobbyList" && emptyList.total === 0,
+    "browser sees an empty public lobby list"
+  );
+
+  const publicHost = new WebSocket(WS_URL);
+  await new Promise((r) => (publicHost.onopen = r));
+  const publicHostQ = queued(publicHost);
+  send(publicHost, { t: "create", name: "Mika" });
+  const publicCreated = await publicHostQ.recv();
+
+  const publicHost2 = new WebSocket(WS_URL);
+  await new Promise((r) => (publicHost2.onopen = r));
+  const publicHost2Q = queued(publicHost2);
+  send(publicHost2, { t: "create", name: "Nao" });
+  await publicHost2Q.recv();
+
+  const privateHost = new WebSocket(WS_URL);
+  await new Promise((r) => (privateHost.onopen = r));
+  const privateHostQ = queued(privateHost);
+  send(privateHost, { t: "create", name: "Oto", isPublic: false });
+  await privateHostQ.recv();
+
+  // Page through the list on the same socket: the private room never shows.
+  send(browser, { t: "browse", page: 0, pageSize: 1 });
+  const firstPage = await browserQ.recv();
+  assert(
+    firstPage.t === "lobbyList" &&
+      firstPage.total === 2 &&
+      firstPage.lobbies.length === 1 &&
+      firstPage.pageSize === 1,
+    "browse first page returns one of two public lobbies"
+  );
+  send(browser, { t: "browse", page: 1, pageSize: 1 });
+  const secondPage = await browserQ.recv();
+  assert(
+    secondPage.t === "lobbyList" &&
+      secondPage.page === 1 &&
+      secondPage.lobbies.length === 1,
+    "browse second page returns the other public lobby"
+  );
+  const listedCodes = new Set([
+    firstPage.lobbies[0].code,
+    secondPage.lobbies[0].code,
+  ]);
+  assert(
+    listedCodes.has(publicCreated.code) && listedCodes.size === 2,
+    "both public rooms are listed (private room is not)"
+  );
+  const entry = firstPage.lobbies[0];
+  assert(
+    typeof entry.hostName === "string" &&
+      entry.maxPlayers === 4 &&
+      entry.locked === false &&
+      (entry.latencyMs === null || typeof entry.latencyMs === "number"),
+    "lobby entry carries host name, capacity, lock and latency"
+  );
+
+  // A browse socket may only browse: a non-browse message is ignored.
+  send(browser, { t: "leave" });
+  send(browser, { t: "browse", page: 0, pageSize: 8 });
+  const afterLeave = await browserQ.recv();
+  assert(
+    afterLeave.t === "lobbyList" && afterLeave.total === 2,
+    "browser socket ignores non-browse messages"
+  );
+
+  browser.close();
+  publicHost.close();
+  publicHost2.close();
+  privateHost.close();
+
   // Let in-flight socket closes settle before exiting — exiting mid-close
   // trips a libuv assertion on Windows.
   await new Promise((r) => setTimeout(r, 300));
