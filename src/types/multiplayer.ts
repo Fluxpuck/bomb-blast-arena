@@ -78,8 +78,8 @@ export interface RosterEntry {
 // =========================
 
 export type ClientToServerMessage =
-  /** instanceId tags the room with its Discord Activity instance; isPublic opts the room out of the public lobby list when false (public by default); seed marks a seeder-hosted lobby that promotes its first joiner to host (server-side only — clients never send it). */
-  | { t: "create"; name: string; instanceId?: string; isPublic?: boolean; seed?: boolean }
+  /** instanceId tags the room with its Discord Activity instance; isPublic opts the room out of the public lobby list when false (public by default); seed marks a seeder-hosted lobby that promotes its first joiner to host and requires the relay's shared seedToken (server-side only — clients never send either). */
+  | { t: "create"; name: string; instanceId?: string; isPublic?: boolean; seed?: boolean; seedToken?: string }
   | { t: "join"; code: string; name: string }
   | { t: "spectate"; code: string; name: string }
   /** Subscribe to one Discord instance's lobbies (never joins a room). */

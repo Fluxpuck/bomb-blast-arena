@@ -32,12 +32,18 @@ export function usePublicLobbies(enabled: boolean) {
     error: null,
   });
   const pageRef = useRef(0);
+  // Bumped per request; a response or failure applies only when it still
+  // owns the list — otherwise a slow earlier page could resolve last and
+  // overwrite the page the user just picked.
+  const requestIdRef = useRef(0);
 
   const load = useCallback(async (page: number) => {
     pageRef.current = page;
+    const requestId = ++requestIdRef.current;
     setState((prev) => ({ ...prev, loading: true, error: null }));
     try {
       const result = await fetchPublicLobbies(page, PUBLIC_LOBBY_PAGE_SIZE);
+      if (requestId !== requestIdRef.current) return;
       setState({
         lobbies: result.lobbies,
         page: result.page,
@@ -47,6 +53,7 @@ export function usePublicLobbies(enabled: boolean) {
         error: null,
       });
     } catch {
+      if (requestId !== requestIdRef.current) return;
       setState((prev) => ({
         ...prev,
         loading: false,

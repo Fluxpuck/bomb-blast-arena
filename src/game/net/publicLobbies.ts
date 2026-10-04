@@ -16,9 +16,15 @@ export interface PublicLobbyPage {
   total: number;
 }
 
+// A relay that accepts the socket but never answers `browse` would leave
+// the request (and socket) open forever — the list refresh interval would
+// keep stacking them. Give each fetch a deadline.
+const BROWSE_TIMEOUT_MS = 10000;
+
 /**
- * Fetch one page of the public lobby list. `page` is 0-based; the relay
- * clamps it into range and echoes the applied page/pageSize back.
+ * Fetch one page of the public lobby list.
+ * `page` is 0-based; the relay clamps it into range and echoes the applied
+ * page/pageSize back. `pageSize` is capped by the relay at 50.
  */
 export function fetchPublicLobbies(
   page: number,
@@ -27,9 +33,14 @@ export function fetchPublicLobbies(
   return new Promise<PublicLobbyPage>((resolve, reject) => {
     let settled = false;
     const ws = new WebSocket(relayWsUrl());
+    const timeout = setTimeout(
+      () => settle(() => reject(new Error("Lobby list request timed out"))),
+      BROWSE_TIMEOUT_MS
+    );
     const settle = (finish: () => void) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timeout);
       ws.onclose = null;
       ws.onerror = null;
       ws.onmessage = null;

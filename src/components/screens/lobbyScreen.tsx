@@ -81,8 +81,21 @@ export function LobbyScreen({
   // Rooms join the public server list unless the creator opts out.
   const [isPublic, setIsPublic] = useState(true);
   // Multiplayer opens on the public server list; "Create Room" leads to the
-  // separate create/join view.
-  const [view, setView] = useState<"servers" | "create">("servers");
+  // separate create/join view. An invite code opens straight on that view
+  // so the prefilled join field is visible.
+  const [view, setView] = useState<"servers" | "create">(
+    initialJoinCode ? "create" : "servers"
+  );
+  // Adopt a late-arriving invite code (a Discord join dispatch while the
+  // lobby is already open): prefill it and switch to the create/join view.
+  const [prevJoinCode, setPrevJoinCode] = useState(initialJoinCode);
+  if (initialJoinCode !== prevJoinCode) {
+    setPrevJoinCode(initialJoinCode);
+    if (initialJoinCode) {
+      setJoinCode(initialJoinCode);
+      setView("create");
+    }
+  }
   // Fetching stops inside a room — the list is irrelevant there.
   const serverList = usePublicLobbies(roomCode === null);
   const [copied, setCopied] = useState(false);
