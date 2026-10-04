@@ -189,15 +189,20 @@ class RoomClient {
     }
   }
 
-  public createRoom(name: string, isPublic = true) {
+  public createRoom(
+    name: string,
+    isPublic = true,
+    roomName?: string,
+    mapId?: string
+  ) {
     this.name = name;
     // Tag Discord-hosted rooms with the Activity instance so everyone in
     // the same Activity sees a "Join <host>'s Lobby" button.
     const instanceId = getDiscordInstanceId();
     this.send(
       instanceId
-        ? { t: "create", name, instanceId, isPublic }
-        : { t: "create", name, isPublic }
+        ? { t: "create", name, instanceId, isPublic, roomName, mapId }
+        : { t: "create", name, isPublic, roomName, mapId }
     );
   }
 

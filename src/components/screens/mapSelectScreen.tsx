@@ -20,9 +20,16 @@ const PREVIEW_CELL = {
 /**
  * Renders a miniature preview of a map pattern: border walls, pillar cells,
  * spawn-safe corners, and open floor. Breakables are skipped — they are
- * random per game anyway.
+ * random per game anyway. `cellSize` is the pixel size of one cell — the
+ * lobby browser renders a smaller 3px version of the same preview.
  */
-function MapPreview({ pattern }: { pattern: MapPattern }) {
+export function MapPreview({
+  pattern,
+  cellSize = 6,
+}: {
+  pattern: MapPattern;
+  cellSize?: number;
+}) {
   const cells: string[] = [];
   for (let row = 0; row < gridRows; row++) {
     for (let col = 0; col < gridCols; col++) {
@@ -44,11 +51,14 @@ function MapPreview({ pattern }: { pattern: MapPattern }) {
     <div
       className="grid gap-0 rounded-md overflow-hidden border-2 border-[#0b1526]"
       style={{
-        gridTemplateColumns: `repeat(${gridCols}, 6px)`,
+        gridTemplateColumns: `repeat(${gridCols}, ${cellSize}px)`,
       }}
     >
       {cells.map((color, i) => (
-        <div key={i} style={{ width: 6, height: 6, backgroundColor: color }} />
+        <div
+          key={i}
+          style={{ width: cellSize, height: cellSize, backgroundColor: color }}
+        />
       ))}
     </div>
   );

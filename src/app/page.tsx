@@ -506,7 +506,12 @@ export default function Home() {
     ? "Could not connect to the server — is the /ws URL mapping set?"
     : "Could not connect to the server";
 
-  const handleCreateRoom = async (name: string, isPublic: boolean) => {
+  const handleCreateRoom = async (
+    name: string,
+    isPublic: boolean,
+    roomName?: string,
+    mapId?: string
+  ) => {
     setLobbyState((prev) => ({ ...prev, connecting: true, error: null, myName: name }));
     // A creator is never a guest or spectator — clear stale flags a failed
     // join/spectate may have left, or the next match would wait for a host
@@ -515,7 +520,7 @@ export default function Home() {
     setIsSpectator(false);
     try {
       await roomClient.connect();
-      roomClient.createRoom(name, isPublic);
+      roomClient.createRoom(name, isPublic, roomName, mapId);
     } catch {
       setLobbyState((prev) => ({
         ...prev,

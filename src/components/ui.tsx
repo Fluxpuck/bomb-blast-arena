@@ -142,14 +142,15 @@ export function Screen({ children }: { children: ReactNode }) {
 }
 
 /** Raised dialog panel. `width` is its desktop width — the Screen wrapper
- *  scales the whole panel down on viewports too narrow to fit it. */
+ *  scales the whole panel down on viewports too narrow to fit it. Pass
+ *  `null` to skip the fixed width and size it via responsive classes. */
 export function Panel({
   children,
   width = 440,
   className,
 }: {
   children: ReactNode;
-  width?: number;
+  width?: number | null;
   className?: string;
 }) {
   return (
@@ -158,7 +159,7 @@ export function Panel({
         "m-auto p-7 text-ui-text rounded-[18px] border-2 border-ui-line bg-linear-to-b from-ui-panel-top to-ui-panel-bottom shadow-[0_24px_60px_rgba(0,0,0,.55),inset_0_1px_0_rgba(255,255,255,.07)]",
         className
       )}
-      style={{ width } as CSSProperties}
+      style={width === null ? undefined : ({ width } as CSSProperties)}
     >
       {children}
     </div>
@@ -366,6 +367,48 @@ export function Button({
       )}
       {...rest}
     />
+  );
+}
+
+/** Segmented pill control (lobby filter tabs, Public/Private). The active
+ *  option is cyan on ink; the rest sit quiet on the input background. */
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  className,
+}: {
+  options: { value: T; label: ReactNode }[];
+  value: T;
+  onChange: (value: T) => void;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cx(
+        "flex rounded-[10px] p-1 bg-ui-ink border border-ui-line",
+        className
+      )}
+    >
+      {options.map((option) => {
+        const isActive = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={cx(
+              "flex-1 min-h-[36px] px-3 rounded-[8px] font-mono text-xs font-bold tracking-[.1em] uppercase cursor-pointer transition-colors duration-[120ms] whitespace-nowrap",
+              isActive
+                ? "bg-ui-cyan text-ui-ink"
+                : "text-ui-muted hover:text-ui-text"
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

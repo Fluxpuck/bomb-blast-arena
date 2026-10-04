@@ -11,7 +11,9 @@ import { PublicLobby } from "../types/multiplayer";
 // screen is open. Disabled while inside a room — the list is irrelevant then
 // and the browse sockets would leak.
 
-export const PUBLIC_LOBBY_PAGE_SIZE = 10;
+// The lobby browser filters the whole list client-side (All/Open/In game
+// tabs), so it always pulls the relay's maximum page instead of paging.
+export const PUBLIC_LOBBY_PAGE_SIZE = 50;
 
 export interface PublicLobbyState {
   lobbies: PublicLobby[];
@@ -20,6 +22,8 @@ export interface PublicLobbyState {
   total: number;
   loading: boolean;
   error: string | null;
+  /** ms epoch of the last successful fetch — drives "Updated Ns ago". */
+  updatedAt: number | null;
 }
 
 export function usePublicLobbies(enabled: boolean) {
@@ -30,6 +34,7 @@ export function usePublicLobbies(enabled: boolean) {
     total: 0,
     loading: false,
     error: null,
+    updatedAt: null,
   });
   const pageRef = useRef(0);
   // Bumped per request; a response or failure applies only when it still
@@ -51,6 +56,7 @@ export function usePublicLobbies(enabled: boolean) {
         total: result.total,
         loading: false,
         error: null,
+        updatedAt: Date.now(),
       });
     } catch {
       if (requestId !== requestIdRef.current) return;
