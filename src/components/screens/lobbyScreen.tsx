@@ -799,8 +799,10 @@ export function LobbyScreen({
                 </div>
               </div>
 
-              {/* Right column: join with code, then host your own. */}
-              <div className="self-start flex flex-col gap-3">
+              {/* Right column: join with code, then host your own. Capped
+                  at the row height so short screens scroll this card
+                  instead of overflowing the footer. */}
+              <div className="self-start flex flex-col gap-3 max-h-full overflow-y-auto">
                 <form
                   className="flex flex-col gap-3 rounded-[14px] bg-white/[.04] border border-[rgba(124,196,255,.14)] p-4"
                   onSubmit={(e) => {
