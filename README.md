@@ -77,9 +77,26 @@ To play online:
 
 1. Click **Multiplayer (Online)** on the start screen.
 2. Enter a nickname and **Create Room** — you'll get a 4-letter code.
+   Uncheck **List this lobby publicly** to keep it code-only; public rooms
+   appear in the **public servers** list (sorted by host latency) for anyone
+   to join.
 3. Share the code. Other players enter it and click **Join**.
 4. The host can optionally fill empty slots with bots, then clicks
    **Start Game**.
+
+### Lobby seeder
+
+To always show joinable lobbies, run the seeder alongside the relay:
+
+```bash
+yarn seed   # keeps >=3 public lobbies, checking every 4 minutes
+```
+
+Tune with `SEED_MIN_LOBBIES` and `SEED_INTERVAL_MS` (defaults 3 and 240000).
+Seed rooms are hosted by the process under themed names; when a real player
+joins, the bot leaves and the joiner is promoted to host, so a seeded lobby
+becomes a normal room. The `seeder` service in `docker-compose.yml` runs it
+next to the relay automatically.
 
 The host's browser runs the game engine and streams authoritative state to
 guests; guests send their keyboard input back to the host. Online host
