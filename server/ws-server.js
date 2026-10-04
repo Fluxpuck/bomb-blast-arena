@@ -112,7 +112,7 @@ function broadcastRoom(room) {
     isHost: p.isHost,
   }));
   const spectators = room.spectators.map((s) => ({ name: s.name }));
-  const msg = { t: "room", code: room.code, players, spectators };
+  const msg = { t: "room", code: room.code, players, spectators, mapId: room.mapId };
   for (const p of room.players) {
     send(p.ws, msg);
   }

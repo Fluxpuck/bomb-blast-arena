@@ -39,7 +39,8 @@ export function relayWsUrl(): string {
 type RoomHandler = (
   code: string,
   players: RoomPlayer[],
-  spectators: RoomSpectator[]
+  spectators: RoomSpectator[],
+  mapId: string | null
 ) => void;
 type RelayHandler = (from: number, payload: GamePayload) => void;
 type ErrorHandler = (message: string) => void;
@@ -54,6 +55,7 @@ class RoomClient {
   private slot: number | null = null;
   private name: string = "";
   private spectator = false;
+  private mapId: string | null = null;
 
   private onReady: ReadyHandler | null = null;
   private onRoom: RoomHandler | null = null;
@@ -149,7 +151,7 @@ class RoomClient {
         this.spectator = false;
         this.onRoom?.(msg.code, [
           { slot: msg.slot, name: this.name, isHost: true },
-        ], []);
+        ], [], this.mapId);
         break;
       case "joined":
         this.code = msg.code;
@@ -162,7 +164,12 @@ class RoomClient {
         this.spectator = true;
         break;
       case "room":
-        this.onRoom?.(msg.code, msg.players, msg.spectators ?? []);
+        this.onRoom?.(
+          msg.code,
+          msg.players,
+          msg.spectators ?? [],
+          msg.mapId ?? this.mapId
+        );
         break;
       case "error":
         this.onError?.(msg.message);
@@ -196,6 +203,7 @@ class RoomClient {
     mapId?: string
   ) {
     this.name = name;
+    this.mapId = mapId ?? null;
     // Tag Discord-hosted rooms with the Activity instance so everyone in
     // the same Activity sees a "Join <host>'s Lobby" button.
     const instanceId = getDiscordInstanceId();
@@ -271,6 +279,7 @@ class RoomClient {
     this.code = null;
     this.slot = null;
     this.spectator = false;
+    this.mapId = null;
     if (this.ws) {
       this.ws.onclose = null;
       this.ws.close();

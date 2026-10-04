@@ -88,6 +88,8 @@ export default function Home() {
     error: string | null;
     connecting: boolean;
     myName: string;
+    /** Map preset declared when the room was created (null = pick at start). */
+    mapId: string | null;
   }>({
     code: null,
     players: [],
@@ -96,6 +98,7 @@ export default function Home() {
     error: null,
     connecting: false,
     myName: "",
+    mapId: null,
   });
 
   // True when this client is an online guest (joined someone else's room).
@@ -184,7 +187,7 @@ export default function Home() {
   // Room client event wiring
   // =========================
   useEffect(() => {
-    roomClient.setOnRoom((code, players, spectators) => {
+    roomClient.setOnRoom((code, players, spectators, mapId) => {
       // The room broadcast is how a join that auto-landed as spectator — or
       // a mid-lobby role switch — reaches React state.
       setIsSpectator(roomClient.isSpectator());
@@ -213,6 +216,7 @@ export default function Home() {
         spectators,
         isHost: me?.isHost ?? false,
         myName: me?.name ?? prev.myName,
+        mapId,
         error: null,
         connecting: false,
       }));
@@ -494,6 +498,7 @@ export default function Home() {
       error: null,
       connecting: false,
       myName: discordNameRef.current ?? "",
+      mapId: null,
     });
     setIsGuest(false);
     setIsSpectator(false);
@@ -568,6 +573,7 @@ export default function Home() {
       error: null,
       connecting: false,
       myName: discordNameRef.current ?? "",
+      mapId: null,
     });
   };
 
@@ -586,6 +592,7 @@ export default function Home() {
       error: null,
       connecting: false,
       myName: discordNameRef.current ?? "",
+      mapId: null,
     });
   };
 
@@ -593,6 +600,15 @@ export default function Home() {
   // Host: start the online game
   // =========================
   const handleStartOnlineGame = (fillBots: boolean) => {
+    // The map was picked at room creation and is advertised to joiners —
+    // start on it directly instead of re-picking on the map-select screen.
+    // Rooms without a declared map (created before map support) fall back
+    // to the picker.
+    if (lobbyState.mapId) {
+      setMapPattern(lobbyState.mapId);
+      startOnlineGame(fillBots);
+      return;
+    }
     pendingOnlineFillBotsRef.current = fillBots;
     setGameState(GameState.MAP_SELECT);
   };
@@ -688,6 +704,7 @@ export default function Home() {
       error: null,
       connecting: false,
       myName: discordNameRef.current ?? "",
+      mapId: null,
     });
     setGameState(GameState.START);
     setTimeElapsedMs(0);
@@ -858,6 +875,7 @@ export default function Home() {
             isHost={lobbyState.isHost}
             isSpectator={isSpectator}
             myName={lobbyState.myName}
+            roomMapId={lobbyState.mapId}
             error={lobbyState.error}
             connecting={lobbyState.connecting}
             initialJoinCode={inviteJoinCode}

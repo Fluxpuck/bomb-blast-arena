@@ -102,7 +102,7 @@ export type ServerToClientMessage =
   | { t: "created"; code: string; slot: number }
   | { t: "joined"; code: string; slot: number }
   | { t: "spectating"; code: string }
-  | { t: "room"; code: string; players: RoomPlayer[]; spectators: RoomSpectator[] }
+  | { t: "room"; code: string; players: RoomPlayer[]; spectators: RoomSpectator[]; mapId?: string | null }
   | { t: "error"; message: string }
   | { t: "hostLeft" }
   | { t: "lobbies"; lobbies: InstanceLobby[] }
