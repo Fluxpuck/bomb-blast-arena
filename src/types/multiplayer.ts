@@ -48,10 +48,16 @@ export interface InstanceLobby {
  */
 export interface PublicLobby {
   code: string;
+  /** Room display name — "<host>'s room" when the creator didn't set one. */
+  name: string;
   hostName: string;
+  /** Map preset id (src/game/maps.ts) the host declared at creation. */
+  mapId: string | null;
   playerCount: number;
   /** Always 4 — a lobby is full when playerCount reaches it. */
   maxPlayers: number;
+  /** Occupied player slots, for the lobby browser's colored dots. */
+  slots: number[];
   /** True while a match is running — joining then lands as a spectator. */
   locked: boolean;
   /**
@@ -78,8 +84,8 @@ export interface RosterEntry {
 // =========================
 
 export type ClientToServerMessage =
-  /** instanceId tags the room with its Discord Activity instance; isPublic opts the room out of the public lobby list when false (public by default); seed marks a seeder-hosted lobby that promotes its first joiner to host and requires the relay's shared seedToken (server-side only — clients never send either). */
-  | { t: "create"; name: string; instanceId?: string; isPublic?: boolean; seed?: boolean; seedToken?: string }
+  /** instanceId tags the room with its Discord Activity instance; isPublic opts the room out of the public lobby list when false (public by default); roomName (≤24) is the room's display name in the list (default "<name>'s room"); mapId names the host's declared map preset; seed marks a seeder-hosted lobby that promotes its first joiner to host and requires the relay's shared seedToken (server-side only — clients never send either). */
+  | { t: "create"; name: string; instanceId?: string; isPublic?: boolean; roomName?: string; mapId?: string; seed?: boolean; seedToken?: string }
   | { t: "join"; code: string; name: string }
   | { t: "spectate"; code: string; name: string }
   /** Subscribe to one Discord instance's lobbies (never joins a room). */

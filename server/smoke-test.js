@@ -290,6 +290,9 @@ async function run() {
 
   watcher.close();
   otherHost.close();
+  // Give the relay a beat to process the close before the browse below,
+  // otherwise the just-closed public room can still be counted.
+  await new Promise((r) => setTimeout(r, 100));
 
   // --- Public lobby list: browse pages public rooms only ---
   const browser = new WebSocket(WS_URL);
@@ -311,8 +314,8 @@ async function run() {
   const publicHost2 = new WebSocket(WS_URL);
   await new Promise((r) => (publicHost2.onopen = r));
   const publicHost2Q = queued(publicHost2);
-  send(publicHost2, { t: "create", name: "Nao" });
-  await publicHost2Q.recv();
+  send(publicHost2, { t: "create", name: "Nao", roomName: "Nao's Arena", mapId: "pillars" });
+  const public2Created = await publicHost2Q.recv();
 
   const privateHost = new WebSocket(WS_URL);
   await new Promise((r) => (privateHost.onopen = r));
@@ -353,6 +356,16 @@ async function run() {
       entry.locked === false &&
       (entry.latencyMs === null || typeof entry.latencyMs === "number"),
     "lobby entry carries host name, capacity, lock and latency"
+  );
+  const namedEntry = [firstPage.lobbies[0], secondPage.lobbies[0]].find(
+    (l) => l.code === public2Created.code
+  );
+  assert(
+    namedEntry.name === "Nao's Arena" &&
+      namedEntry.mapId === "pillars" &&
+      Array.isArray(namedEntry.slots) &&
+      namedEntry.slots.length === namedEntry.playerCount,
+    "lobby entry carries room name, map id and occupied slots"
   );
 
   // A browse socket may only browse: a non-browse message is ignored.
