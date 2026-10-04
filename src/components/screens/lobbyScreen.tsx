@@ -15,6 +15,7 @@ import {
   cx,
   Dot,
   ErrorText,
+  Heading,
   Hint,
   INPUT_BASE,
   Label,
@@ -53,6 +54,8 @@ interface LobbyScreenProps {
   onLeave: () => void;
   onStart: (fillBots: boolean) => void;
   onBack: () => void;
+  /** The room's declared map (null while browsing or when undeclared). */
+  roomMapId?: string | null;
 }
 
 // Slot colours match the in-game player colours.
@@ -61,6 +64,45 @@ const EMPTY_SLOT_COLOR = "#1e2b45";
 
 const MAX_ROOM_NAME_LENGTH = 24;
 const CODE_LENGTH = 4;
+const NICKNAME_MAX_LENGTH = 16;
+
+// Nicknames persist between visits so returning players keep their identity.
+const NICKNAME_STORAGE_KEY = "bomb-blast-arena.nickname";
+
+// Fallback nickname words, themed like the seeder bot names. A random pick
+// means hosting/joining is never blocked on typing a name first.
+const NICKNAME_WORDS = ["Fuse", "Spark", "Boom", "Blast", "TNT", "Ember", "Cap"];
+
+function randomNickname(): string {
+  const word =
+    NICKNAME_WORDS[Math.floor(Math.random() * NICKNAME_WORDS.length)];
+  return `${word}${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function readStoredNickname(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(NICKNAME_STORAGE_KEY) ?? "";
+  } catch {
+    // Storage can be unavailable (private mode, policy) — never block play.
+    return "";
+  }
+}
+
+function storeNickname(name: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(NICKNAME_STORAGE_KEY, name);
+  } catch {
+    // Optional persistence; hosting and joining must still work.
+  }
+}
+
+// Map choices beyond the named presets — same ids the map-select screen uses.
+const EXTRA_MAP_OPTIONS = [
+  { id: "random", name: "Random preset", icon: "?" },
+  { id: "generate", name: "Generate random map", icon: "⚄" },
+] as const;
 
 // Row/list column metrics from the lobby design: map thumb, name, status,
 // players, ping, action — desktop only, mobile rows stack instead.
@@ -89,6 +131,20 @@ function lobbyMap(lobby: PublicLobby) {
   return MAP_PATTERNS.find((pattern) => pattern.id === lobby.mapId) ?? null;
 }
 
+/** Display name for a map id, covering the random/generate picks. */
+function mapNameForId(mapId: string | null | undefined): string | null {
+  const preset = MAP_PATTERNS.find((pattern) => pattern.id === mapId);
+  if (preset) return preset.name;
+  if (mapId === "random") return "Random";
+  if (mapId === "generate") return "Generated";
+  return null;
+}
+
+/** Display name for a lobby's map. */
+function lobbyMapName(lobby: PublicLobby): string | null {
+  return mapNameForId(lobby.mapId);
+}
+
 /** Occupied slots; falls back to the first N when an older relay omits them. */
 function lobbySlots(lobby: PublicLobby): number[] {
   return (
@@ -108,8 +164,8 @@ function pingColor(latencyMs: number | null): string {
 // Nickname chip
 // =========================
 // The player's identity on the browser screen — a chip instead of a full
-// field. EDIT opens an inline editor; it opens by itself while empty since
-// every join/create needs a name.
+// field. EDIT opens an inline editor (names auto-fill from storage or a
+// random pick, so it starts closed).
 function NicknameChip({
   name,
   editing,
@@ -134,7 +190,7 @@ function NicknameChip({
           ref={inputRef}
           type="text"
           value={name}
-          maxLength={16}
+          maxLength={NICKNAME_MAX_LENGTH}
           onChange={(e) => onChange(e.target.value)}
           onBlur={() => onEdit(false)}
           onKeyDown={(e) => {
@@ -214,7 +270,7 @@ function PingText({ latencyMs }: { latencyMs: number | null }) {
 }
 
 // =========================
-// Host form (desktop card + mobile sheet share it)
+// Host form — the dedicated create view uses it on all sizes.
 // =========================
 function HostForm({
   name,
@@ -222,6 +278,7 @@ function HostForm({
   mapId,
   isPublic,
   connecting,
+  onName,
   onRoomName,
   onMapId,
   onIsPublic,
@@ -232,6 +289,7 @@ function HostForm({
   mapId: string;
   isPublic: boolean;
   connecting: boolean;
+  onName: (value: string) => void;
   onRoomName: (value: string) => void;
   onMapId: (value: string) => void;
   onIsPublic: (value: boolean) => void;
@@ -240,27 +298,78 @@ function HostForm({
   const roomNamePlaceholder = `${name.trim() || "Host"}'s room`;
   return (
     <>
-      <TextInput
-        value={roomName}
-        maxLength={MAX_ROOM_NAME_LENGTH}
-        onChange={(e) => onRoomName(e.target.value)}
-        placeholder={roomNamePlaceholder}
-        aria-label="Room name"
-      />
+      <div>
+        <Label className="block mb-1.5">Your nickname</Label>
+        <TextInput
+          value={name}
+          maxLength={NICKNAME_MAX_LENGTH}
+          onChange={(e) => onName(e.target.value)}
+          placeholder="Enter a nickname"
+          aria-label="Your nickname"
+        />
+      </div>
+      <div>
+        <Label className="block mb-1.5">Room name</Label>
+        <TextInput
+          value={roomName}
+          maxLength={MAX_ROOM_NAME_LENGTH}
+          onChange={(e) => onRoomName(e.target.value)}
+          placeholder={roomNamePlaceholder}
+          aria-label="Room name"
+        />
+      </div>
       <div>
         <Label className="block mb-1.5">Map</Label>
-        <select
-          value={mapId}
-          onChange={(e) => onMapId(e.target.value)}
-          className={cx(INPUT_BASE, "w-full px-3.5 py-2.5 text-sm")}
-          aria-label="Map"
-        >
-          {MAP_PATTERNS.map((pattern) => (
-            <option key={pattern.id} value={pattern.id}>
-              {pattern.name}
-            </option>
-          ))}
-        </select>
+        {/* Same thumbnail picker as the map-select screen: mini previews
+            for the presets, icon cards for random/generate. */}
+        <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Map">
+          {MAP_PATTERNS.map((pattern) => {
+            const isActive = mapId === pattern.id;
+            return (
+              <button
+                key={pattern.id}
+                type="button"
+                role="radio"
+                aria-checked={isActive}
+                onClick={() => onMapId(pattern.id)}
+                className={cx(
+                  "flex flex-col items-center gap-1.5 p-2 rounded-[10px] bg-ui-ink border-2 cursor-pointer transition-colors",
+                  isActive
+                    ? "border-ui-cyan shadow-[0_0_0_3px_rgba(95,215,242,.25)]"
+                    : "border-ui-line hover:border-ui-cyan"
+                )}
+              >
+                <MapPreview pattern={pattern} cellSize={4} />
+                <span className="font-bold text-[11px]">{pattern.name}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          {EXTRA_MAP_OPTIONS.map((option) => {
+            const isActive = mapId === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={isActive}
+                onClick={() => onMapId(option.id)}
+                className={cx(
+                  "flex items-center justify-center gap-2 px-2 py-2.5 rounded-[10px] bg-ui-ink border-2 cursor-pointer transition-colors",
+                  isActive
+                    ? "border-ui-cyan shadow-[0_0_0_3px_rgba(95,215,242,.25)]"
+                    : "border-ui-line hover:border-ui-cyan"
+                )}
+              >
+                <span className="text-base font-bold text-ui-yellow">
+                  {option.icon}
+                </span>
+                <span className="font-bold text-[11px]">{option.name}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
       <Segmented
         options={[
@@ -300,14 +409,33 @@ export function LobbyScreen({
   onLeave,
   onStart,
   onBack,
+  roomMapId = null,
 }: LobbyScreenProps) {
   const [name, setName] = useState(myName);
+  // Filled once on mount when no name was provided: the stored nickname,
+  // else a random themed one so hosting/joining never starts blocked.
+  const generatedNameRef = useRef<string | null>(null);
+  useEffect(() => {
+    setName((prev) => {
+      if (prev) return prev;
+      const stored = readStoredNickname();
+      if (stored) return stored;
+      if (!generatedNameRef.current) {
+        generatedNameRef.current = randomNickname();
+      }
+      return generatedNameRef.current;
+    });
+  }, []);
   // Adopt a late-arriving myName (Discord auth resolving after the lobby
-  // opened) unless the user has already typed a nickname.
+  // opened) over an empty or still-random nickname — never a typed or
+  // stored one. An emptied myName (e.g. leaving a room) keeps the current
+  // nickname instead of clearing it.
   const [prevMyName, setPrevMyName] = useState(myName);
   if (myName !== prevMyName) {
     setPrevMyName(myName);
-    if (!name) setName(myName);
+    if (myName && (!name || name === generatedNameRef.current)) {
+      setName(myName);
+    }
   }
   const [joinCode, setJoinCode] = useState(initialJoinCode);
   const [fillBots, setFillBots] = useState(true);
@@ -316,9 +444,10 @@ export function LobbyScreen({
   const [roomName, setRoomName] = useState("");
   const [mapId, setMapId] = useState(MAP_PATTERNS[0].id);
   const [tab, setTab] = useState<LobbyTab>("all");
-  // The name chip edits inline; it opens on its own while the name is empty.
-  const [editingName, setEditingName] = useState(!myName);
-  const [hostSheetOpen, setHostSheetOpen] = useState(false);
+  // The name chip edits inline via its Edit button.
+  const [editingName, setEditingName] = useState(false);
+  // The browser is the landing view; "create" is the dedicated host menu.
+  const [view, setView] = useState<"browse" | "create">("browse");
   // Footer status line — "Joining X…" until the join resolves into a room
   // or an error replaces it.
   const [status, setStatus] = useState<string | null>(null);
@@ -345,15 +474,18 @@ export function LobbyScreen({
   const nameIsSet = name.trim().length > 0;
   const codeIsValid = joinCode.length === CODE_LENGTH;
 
-  // Esc leaves the browser — in-room Esc stays free for other uses.
+  // Esc leaves the browser — in the create menu it steps back to browse
+  // first; in-room Esc stays free for other uses.
   useEffect(() => {
     if (inRoom) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onBack();
+      if (e.key !== "Escape") return;
+      if (view === "create") setView("browse");
+      else onBack();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [inRoom, onBack]);
+  }, [inRoom, view, onBack]);
 
   // Re-render once a second so "Updated Ns ago" ticks between refreshes.
   // Date.now() can't be read during render (react-hooks/purity), so the
@@ -411,6 +543,7 @@ export function LobbyScreen({
   const joinLobby = (lobby: PublicLobby) => {
     if (!requireName() || connecting) return;
     lastJoinCodeRef.current = lobby.code;
+    storeNickname(name.trim());
     setStatus(`Joining ${lobby.name}…`);
     onJoin(lobby.code, name.trim());
   };
@@ -419,13 +552,14 @@ export function LobbyScreen({
     if (!codeIsValid) return;
     if (!requireName() || connecting) return;
     lastJoinCodeRef.current = joinCode;
+    storeNickname(name.trim());
     setStatus(`Joining ${joinCode}…`);
     onJoin(joinCode, name.trim());
   };
 
   const createRoom = () => {
     if (!requireName() || connecting) return;
-    setHostSheetOpen(false);
+    storeNickname(name.trim());
     setStatus("Creating room…");
     onCreate(name.trim(), isPublic, roomName.trim() || undefined, mapId);
   };
@@ -496,6 +630,7 @@ export function LobbyScreen({
       disabled={!nameIsSet || connecting}
       onClick={() => {
         lastJoinCodeRef.current = lobby.code;
+        storeNickname(name.trim());
         setStatus(`Joining ${lobby.hostName}'s lobby…`);
         onJoin(lobby.code, name.trim());
       }}
@@ -539,15 +674,17 @@ export function LobbyScreen({
   return (
     <Screen>
       <Panel
-        width={inRoom ? 720 : null}
+        width={inRoom ? 720 : view === "create" ? 440 : null}
         className={
-          inRoom
+          inRoom || view === "create"
             ? undefined
-            : "w-[min(1100px,calc(100vw-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto"
+            : // 8rem clearance leaves room for the fixed audio pill that sits
+              // bottom-centre on desktop instead of overlapping the footer.
+              "w-[min(1100px,calc(100vw-2rem))] max-h-[calc(100dvh-8rem)] overflow-y-auto"
         }
       >
         {/* ============ Lobby browser — desktop (>= sm) ============ */}
-        {!inRoom && (
+        {!inRoom && view === "browse" && (
           <div className="hidden sm:flex flex-col gap-5">
             {/* Header: title + subtitle left, nickname chip right. */}
             <div className="flex items-start justify-between gap-4">
@@ -612,7 +749,7 @@ export function LobbyScreen({
                 <div className="flex flex-col gap-1.5 h-[392px] overflow-y-auto pr-1">
                   {visibleLobbies.map((lobby) => {
                     const status = lobbyStatus(lobby);
-                    const map = lobbyMap(lobby);
+                    const mapName = lobbyMapName(lobby);
                     return (
                       <div
                         key={lobby.code}
@@ -628,7 +765,7 @@ export function LobbyScreen({
                           </span>
                           <span className="block text-[13px] text-ui-muted truncate">
                             {lobby.hostName}
-                            {map ? ` · ${map.name}` : ""}
+                            {mapName ? ` · ${mapName}` : ""}
                           </span>
                         </span>
                         <Label
@@ -658,72 +795,64 @@ export function LobbyScreen({
                 </div>
               </div>
 
-              {/* Right column: join with code + host a room. */}
-              <div className="flex flex-col gap-4">
-                <form
-                  className="flex flex-col gap-3 rounded-[14px] bg-white/[.04] border border-[rgba(124,196,255,.14)] p-4"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    joinByCode();
-                  }}
+              {/* Right column: join with code. */}
+              <form
+                className="self-start flex flex-col gap-3 rounded-[14px] bg-white/[.04] border border-[rgba(124,196,255,.14)] p-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  joinByCode();
+                }}
+              >
+                <Label>Join with code</Label>
+                <input
+                  type="text"
+                  value={joinCode}
+                  maxLength={CODE_LENGTH}
+                  onChange={(e) => handleCodeChange(e.target.value)}
+                  placeholder="CODE"
+                  aria-label="Room code"
+                  className={cx(
+                    INPUT_BASE,
+                    "w-full px-3.5 py-2.5 text-center text-[26px] font-bold text-ui-yellow tracking-[0.4em] uppercase"
+                  )}
+                />
+                <Button
+                  type="submit"
+                  variant="green"
+                  disabled={!codeIsValid || connecting}
                 >
-                  <Label>Join with code</Label>
-                  <input
-                    type="text"
-                    value={joinCode}
-                    maxLength={CODE_LENGTH}
-                    onChange={(e) => handleCodeChange(e.target.value)}
-                    placeholder="CODE"
-                    aria-label="Room code"
-                    className={cx(
-                      INPUT_BASE,
-                      "w-full px-3.5 py-2.5 text-center text-[26px] font-bold text-ui-yellow tracking-[0.4em] uppercase"
-                    )}
-                  />
-                  <Button
-                    type="submit"
-                    variant="green"
-                    disabled={!codeIsValid || connecting}
-                  >
-                    Join Room
-                  </Button>
-                  <Hint>
-                    Private rooms only show up here — ask the host for their
-                    4-letter code.
-                  </Hint>
-                </form>
-
-                <div className="flex flex-col gap-3 rounded-[14px] bg-white/[.04] border border-[rgba(124,196,255,.14)] p-4">
-                  <Label>Host a room</Label>
-                  <HostForm
-                    name={name}
-                    roomName={roomName}
-                    mapId={mapId}
-                    isPublic={isPublic}
-                    connecting={connecting}
-                    onRoomName={setRoomName}
-                    onMapId={setMapId}
-                    onIsPublic={setIsPublic}
-                    onCreate={createRoom}
-                  />
-                </div>
-              </div>
+                  Join Room
+                </Button>
+                <Hint>
+                  Private rooms only show up here — ask the host for their
+                  4-letter code.
+                </Hint>
+              </form>
             </div>
 
-            {/* Footer: back link left, inline status right. */}
+            {/* Footer: back link left, status + create right. */}
             <div className="flex items-center justify-between gap-4">
               <LinkButton onClick={onBack}>← Back to menu</LinkButton>
-              {statusText && (
-                <span className="font-mono text-xs font-bold text-ui-yellow">
-                  {statusText}
-                </span>
-              )}
+              <span className="flex items-center gap-4">
+                {statusText && (
+                  <span className="font-mono text-xs font-bold text-ui-yellow">
+                    {statusText}
+                  </span>
+                )}
+                <Button
+                  variant="purple"
+                  size="lg"
+                  onClick={() => setView("create")}
+                >
+                  + Create Lobby
+                </Button>
+              </span>
             </div>
           </div>
         )}
 
         {/* ============ Lobby browser — mobile (< sm) ============ */}
-        {!inRoom && (
+        {!inRoom && view === "browse" && (
           <div className="sm:hidden flex flex-col gap-3.5 -m-3 p-4 pt-8 min-h-[calc(100dvh-2rem)]">
             {/* Top bar: back, title, refresh. */}
             <div className="flex items-center justify-between">
@@ -784,7 +913,7 @@ export function LobbyScreen({
             <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto">
               {visibleLobbies.map((lobby) => {
                 const status = lobbyStatus(lobby);
-                const map = lobbyMap(lobby);
+                const mapName = lobbyMapName(lobby);
                 return (
                   <div
                     key={lobby.code}
@@ -796,7 +925,7 @@ export function LobbyScreen({
                       </span>
                       <span className="flex items-center gap-1.5 text-xs text-ui-muted">
                         <PlayerDots lobby={lobby} small />
-                        {map && <span>· {map.name}</span>}
+                        {mapName && <span>· {mapName}</span>}
                         <PingText latencyMs={lobby.latencyMs} />
                       </span>
                     </span>
@@ -821,40 +950,47 @@ export function LobbyScreen({
               </span>
             )}
 
-            {/* Create opens the host form as a bottom sheet. */}
+            {/* Create opens the dedicated host menu, same as desktop. */}
             <Button
               block
               variant="purple"
               size="lg"
-              onClick={() => setHostSheetOpen(true)}
+              onClick={() => setView("create")}
             >
-              + Create Room
+              + Create Lobby
             </Button>
           </div>
         )}
 
-        {/* Host bottom sheet (mobile only). */}
-        {!inRoom && hostSheetOpen && (
-          <div className="sm:hidden fixed inset-0 z-60 flex items-end">
-            <button
-              type="button"
-              aria-label="Close"
-              className="absolute inset-0 bg-black/60 cursor-pointer"
-              onClick={() => setHostSheetOpen(false)}
+        {/* ============ Create a lobby — dedicated host menu ============ */}
+        {!inRoom && view === "create" && (
+          <div className="flex flex-col gap-4">
+            <Heading
+              title="CREATE LOBBY"
+              subtitle="Public rooms appear in the list; private rooms join by code"
+              tone="cyan"
             />
-            <div className="relative w-full flex flex-col gap-3 rounded-t-[18px] border-t-2 border-ui-line bg-linear-to-b from-ui-panel-top to-ui-panel-bottom p-5">
-              <Label>Host a room</Label>
-              <HostForm
-                name={name}
-                roomName={roomName}
-                mapId={mapId}
-                isPublic={isPublic}
-                connecting={connecting}
-                onRoomName={setRoomName}
-                onMapId={setMapId}
-                onIsPublic={setIsPublic}
-                onCreate={createRoom}
-              />
+            <HostForm
+              name={name}
+              roomName={roomName}
+              mapId={mapId}
+              isPublic={isPublic}
+              connecting={connecting}
+              onName={setName}
+              onRoomName={setRoomName}
+              onMapId={setMapId}
+              onIsPublic={setIsPublic}
+              onCreate={createRoom}
+            />
+            {statusText && (
+              <span className="font-mono text-xs font-bold text-ui-yellow text-center">
+                {statusText}
+              </span>
+            )}
+            <div className="text-center">
+              <LinkButton onClick={() => setView("browse")}>
+                ← Back to rooms
+              </LinkButton>
             </div>
           </div>
         )}
@@ -881,6 +1017,13 @@ export function LobbyScreen({
                   {copied ? "Copied!" : copyFailed ? "Ctrl+C" : "Copy"}
                 </Label>
               </button>
+              {/* The room's declared map — locked at creation, applied when
+                  the host starts. */}
+              {mapNameForId(roomMapId) && (
+                <p className="mt-2">
+                  <Label>Map: {mapNameForId(roomMapId)}</Label>
+                </p>
+              )}
             </div>
 
             {/* Roster on the left, controls on the right — keeps the panel
