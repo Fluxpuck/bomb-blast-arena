@@ -47,6 +47,11 @@ const MAX_LOBBY_PAGE_SIZE = 50;
 // Discord instance ids are opaque strings; cap them so a client can't make
 // the server hold arbitrarily large keys.
 const MAX_INSTANCE_ID_LENGTH = 128;
+// Room names come from the lobby browser's host form ("<nickname>'s room"
+// by default); the map id names a client-side preset — the relay stays
+// game-agnostic and only echoes it back in the public list.
+const MAX_ROOM_NAME_LENGTH = 24;
+const MAX_MAP_ID_LENGTH = 32;
 // `create` accepts `seed:true` only with this shared token, so only the
 // lobby seeder can opt a room into host promotion. The default covers local
 // development; deployed setups should override it on relay and seeder.
@@ -58,7 +63,7 @@ const SEED_TOKEN = process.env.SEED_TOKEN || "bomb-blast-local-seed";
 /**
  * @typedef {{ slot: number, name: string, ws: import("ws").WebSocket, isHost: boolean }} Player
  * @typedef {{ name: string, ws: import("ws").WebSocket }} Spectator
- * @typedef {{ code: string, players: Player[], spectators: Spectator[], locked: boolean, instanceId: string | null, isPublic: boolean, seeded: boolean }} Room
+ * @typedef {{ code: string, name: string, mapId: string | null, players: Player[], spectators: Spectator[], locked: boolean, instanceId: string | null, isPublic: boolean, seeded: boolean }} Room
  * @typedef {{ room: Room, player: Player | Spectator, isSpectator: boolean } | { browser: true, ws: import("ws").WebSocket }} Session
  */
 
@@ -125,6 +130,15 @@ function validInstanceId(value) {
     : null;
 }
 
+/** A room name or map id must be a string within its length cap. */
+function boundedString(value, maxLength) {
+  return typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= maxLength
+    ? value
+    : null;
+}
+
 /** Open lobbies hosted in one Discord instance, as sent to watchers. */
 function instanceLobbies(instanceId) {
   const lobbies = [];
@@ -156,9 +170,13 @@ function publicLobbies() {
     if (!host) continue;
     lobbies.push({
       code: room.code,
+      name: room.name,
       hostName: host.name,
+      mapId: room.mapId,
       playerCount: room.players.length,
       maxPlayers: MAX_PLAYERS_PER_ROOM,
+      // Occupied slots, so the browser can paint the colored player dots.
+      slots: room.players.map((p) => p.slot),
       locked: room.locked,
       latencyMs: typeof host.ws.bbaRttMs === "number" ? host.ws.bbaRttMs : null,
     });
@@ -423,9 +441,16 @@ wss.on("connection", (ws) => {
           ws.close();
           return;
         }
+        const hostName = msg.name || "Host";
         /** @type {Room} */
         const room = {
           code: generateCode(),
+          // Hosts may name their room for the public list; default to the
+          // "<name>'s room" form the lobby browser suggests.
+          name:
+            boundedString(msg.roomName, MAX_ROOM_NAME_LENGTH) ||
+            `${hostName}'s room`.slice(0, MAX_ROOM_NAME_LENGTH),
+          mapId: boundedString(msg.mapId, MAX_MAP_ID_LENGTH),
           players: [],
           spectators: [],
           locked: false,
@@ -434,7 +459,7 @@ wss.on("connection", (ws) => {
           isPublic: msg.isPublic !== false,
           seeded: msg.seed === true,
         };
-        const player = { slot: 0, name: msg.name || "Host", ws, isHost: true };
+        const player = { slot: 0, name: hostName, ws, isHost: true };
         room.players.push(player);
         roomsByCode.set(room.code, room);
         sessions.set(ws, { room, player, isSpectator: false });

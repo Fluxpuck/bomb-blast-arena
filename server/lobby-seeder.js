@@ -30,6 +30,18 @@ const BROWSE_TIMEOUT_MS = 10000;
 // every base name is live, a copy number is appended ("Fuse 2") so a higher
 // MIN_PUBLIC_LOBBIES than base names still seeds fully.
 const SEED_NAMES = ["Fuse", "Spark", "Boom", "Blast", "TNT", "Ember", "Cap"];
+// Map preset ids (src/game/maps.ts) cycled across seeds so the lobby
+// browser's map column has variety. Unknown ids just render without a
+// thumbnail, so drift from the client's list is harmless.
+const SEED_MAP_IDS = ["classic", "pillars", "corridors", "arena"];
+
+/** Map id for a seed name — the base name's index, so copies share a map. */
+function seedMapId(name) {
+  const index = SEED_NAMES.findIndex(
+    (base) => name === base || name.startsWith(`${base} `)
+  );
+  return SEED_MAP_IDS[(index < 0 ? 0 : index) % SEED_MAP_IDS.length];
+}
 
 function log(...args) {
   console.log(new Date().toISOString(), ...args);
@@ -95,6 +107,7 @@ function hostSeedRoom(name) {
           t: "create",
           name,
           isPublic: true,
+          mapId: seedMapId(name),
           seed: true,
           seedToken: SEED_TOKEN,
         })
