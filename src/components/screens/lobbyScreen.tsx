@@ -80,21 +80,12 @@ export function LobbyScreen({
   const [fillBots, setFillBots] = useState(true);
   // Rooms join the public server list unless the creator opts out.
   const [isPublic, setIsPublic] = useState(true);
-  // Multiplayer opens on the public server list; "Create Room" leads to the
-  // separate create/join view. An invite code opens straight on that view
-  // so the prefilled join field is visible.
-  const [view, setView] = useState<"servers" | "create">(
-    initialJoinCode ? "create" : "servers"
-  );
   // Adopt a late-arriving invite code (a Discord join dispatch while the
-  // lobby is already open): prefill it and switch to the create/join view.
+  // lobby is already open) by prefilling the join field.
   const [prevJoinCode, setPrevJoinCode] = useState(initialJoinCode);
   if (initialJoinCode !== prevJoinCode) {
     setPrevJoinCode(initialJoinCode);
-    if (initialJoinCode) {
-      setJoinCode(initialJoinCode);
-      setView("create");
-    }
+    if (initialJoinCode) setJoinCode(initialJoinCode);
   }
   // Fetching stops inside a room — the list is irrelevant there.
   const serverList = usePublicLobbies(roomCode === null);
@@ -151,18 +142,13 @@ export function LobbyScreen({
       <Panel width={inRoom ? 720 : 440}>
         <Heading
           title="MULTIPLAYER"
-          subtitle={
-            inRoom
-              ? "Room lobby"
-              : view === "servers"
-                ? "Public servers"
-                : "Create or join a room"
-          }
+          subtitle={inRoom ? "Room lobby" : "Create or join a room"}
           tone="cyan"
         />
 
-        {/* Server list — the first multiplayer view. */}
-        {!inRoom && view === "servers" && (
+        {/* Browse, create, and join-by-code all live on one screen — no
+            hidden second view. */}
+        {!inRoom && (
           <div className="flex flex-col gap-4">
             <div>
               <label htmlFor="nickname" className="block mb-2">
@@ -280,31 +266,11 @@ export function LobbyScreen({
               )}
             </div>
 
-            <Button
-              block
-              variant="purple"
-              size="lg"
-              onClick={() => setView("create")}
-            >
-              Create Room
-            </Button>
-          </div>
-        )}
-
-        {/* Create / join-with-code — reached from the server list. */}
-        {!inRoom && view === "create" && (
-          <div className="flex flex-col gap-4">
-            <div>
-              <label htmlFor="nickname-create" className="block mb-2">
-                <Label>Your nickname</Label>
-              </label>
-              <TextInput
-                id="nickname-create"
-                value={name}
-                maxLength={16}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Enter a nickname"
-              />
+            {/* Host a room — same screen, no extra navigation. */}
+            <div className="flex items-center gap-3">
+              <span className="flex-1 h-px bg-ui-line" />
+              <Label>or host your own</Label>
+              <span className="flex-1 h-px bg-ui-line" />
             </div>
 
             <label className="flex items-center gap-3 text-sm cursor-pointer select-none">
@@ -349,12 +315,6 @@ export function LobbyScreen({
               >
                 Join
               </Button>
-            </div>
-
-            <div className="text-center">
-              <LinkButton onClick={() => setView("servers")}>
-                ← Back to server list
-              </LinkButton>
             </div>
           </div>
         )}
