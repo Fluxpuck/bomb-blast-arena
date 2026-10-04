@@ -54,6 +54,8 @@ interface LobbyScreenProps {
   onLeave: () => void;
   onStart: (fillBots: boolean) => void;
   onBack: () => void;
+  /** The room's declared map (null while browsing or when undeclared). */
+  roomMapId?: string | null;
 }
 
 // Slot colours match the in-game player colours.
@@ -79,18 +81,27 @@ function randomNickname(): string {
 
 function readStoredNickname(): string {
   if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(NICKNAME_STORAGE_KEY) ?? "";
+  try {
+    return window.localStorage.getItem(NICKNAME_STORAGE_KEY) ?? "";
+  } catch {
+    // Storage can be unavailable (private mode, policy) — never block play.
+    return "";
+  }
 }
 
 function storeNickname(name: string): void {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(NICKNAME_STORAGE_KEY, name);
+  try {
+    window.localStorage.setItem(NICKNAME_STORAGE_KEY, name);
+  } catch {
+    // Optional persistence; hosting and joining must still work.
+  }
 }
 
 // Map choices beyond the named presets — same ids the map-select screen uses.
 const EXTRA_MAP_OPTIONS = [
-  { id: "random", name: "Random preset" },
-  { id: "generate", name: "Generate random map" },
+  { id: "random", name: "Random preset", icon: "?" },
+  { id: "generate", name: "Generate random map", icon: "⚄" },
 ] as const;
 
 // Row/list column metrics from the lobby design: map thumb, name, status,
@@ -120,13 +131,18 @@ function lobbyMap(lobby: PublicLobby) {
   return MAP_PATTERNS.find((pattern) => pattern.id === lobby.mapId) ?? null;
 }
 
-/** Display name for a lobby's map, covering the random/generate picks. */
-function lobbyMapName(lobby: PublicLobby): string | null {
-  const preset = lobbyMap(lobby);
+/** Display name for a map id, covering the random/generate picks. */
+function mapNameForId(mapId: string | null | undefined): string | null {
+  const preset = MAP_PATTERNS.find((pattern) => pattern.id === mapId);
   if (preset) return preset.name;
-  if (lobby.mapId === "random") return "Random";
-  if (lobby.mapId === "generate") return "Generated";
+  if (mapId === "random") return "Random";
+  if (mapId === "generate") return "Generated";
   return null;
+}
+
+/** Display name for a lobby's map. */
+function lobbyMapName(lobby: PublicLobby): string | null {
+  return mapNameForId(lobby.mapId);
 }
 
 /** Occupied slots; falls back to the first N when an older relay omits them. */
@@ -148,8 +164,8 @@ function pingColor(latencyMs: number | null): string {
 // Nickname chip
 // =========================
 // The player's identity on the browser screen — a chip instead of a full
-// field. EDIT opens an inline editor; it opens by itself while empty since
-// every join/create needs a name.
+// field. EDIT opens an inline editor (names auto-fill from storage or a
+// random pick, so it starts closed).
 function NicknameChip({
   name,
   editing,
@@ -304,23 +320,56 @@ function HostForm({
       </div>
       <div>
         <Label className="block mb-1.5">Map</Label>
-        <select
-          value={mapId}
-          onChange={(e) => onMapId(e.target.value)}
-          className={cx(INPUT_BASE, "w-full px-3.5 py-2.5 text-sm")}
-          aria-label="Map"
-        >
-          {MAP_PATTERNS.map((pattern) => (
-            <option key={pattern.id} value={pattern.id}>
-              {pattern.name}
-            </option>
-          ))}
-          {EXTRA_MAP_OPTIONS.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.name}
-            </option>
-          ))}
-        </select>
+        {/* Same thumbnail picker as the map-select screen: mini previews
+            for the presets, icon cards for random/generate. */}
+        <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Map">
+          {MAP_PATTERNS.map((pattern) => {
+            const isActive = mapId === pattern.id;
+            return (
+              <button
+                key={pattern.id}
+                type="button"
+                role="radio"
+                aria-checked={isActive}
+                onClick={() => onMapId(pattern.id)}
+                className={cx(
+                  "flex flex-col items-center gap-1.5 p-2 rounded-[10px] bg-ui-ink border-2 cursor-pointer transition-colors",
+                  isActive
+                    ? "border-ui-cyan shadow-[0_0_0_3px_rgba(95,215,242,.25)]"
+                    : "border-ui-line hover:border-ui-cyan"
+                )}
+              >
+                <MapPreview pattern={pattern} cellSize={4} />
+                <span className="font-bold text-[11px]">{pattern.name}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          {EXTRA_MAP_OPTIONS.map((option) => {
+            const isActive = mapId === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={isActive}
+                onClick={() => onMapId(option.id)}
+                className={cx(
+                  "flex items-center justify-center gap-2 px-2 py-2.5 rounded-[10px] bg-ui-ink border-2 cursor-pointer transition-colors",
+                  isActive
+                    ? "border-ui-cyan shadow-[0_0_0_3px_rgba(95,215,242,.25)]"
+                    : "border-ui-line hover:border-ui-cyan"
+                )}
+              >
+                <span className="text-base font-bold text-ui-yellow">
+                  {option.icon}
+                </span>
+                <span className="font-bold text-[11px]">{option.name}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
       <Segmented
         options={[
@@ -360,6 +409,7 @@ export function LobbyScreen({
   onLeave,
   onStart,
   onBack,
+  roomMapId = null,
 }: LobbyScreenProps) {
   const [name, setName] = useState(myName);
   // Filled once on mount when no name was provided: the stored nickname,
@@ -580,6 +630,7 @@ export function LobbyScreen({
       disabled={!nameIsSet || connecting}
       onClick={() => {
         lastJoinCodeRef.current = lobby.code;
+        storeNickname(name.trim());
         setStatus(`Joining ${lobby.hostName}'s lobby…`);
         onJoin(lobby.code, name.trim());
       }}
@@ -966,6 +1017,13 @@ export function LobbyScreen({
                   {copied ? "Copied!" : copyFailed ? "Ctrl+C" : "Copy"}
                 </Label>
               </button>
+              {/* The room's declared map — locked at creation, applied when
+                  the host starts. */}
+              {mapNameForId(roomMapId) && (
+                <p className="mt-2">
+                  <Label>Map: {mapNameForId(roomMapId)}</Label>
+                </p>
+              )}
             </div>
 
             {/* Roster on the left, controls on the right — keeps the panel
