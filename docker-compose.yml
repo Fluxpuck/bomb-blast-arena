@@ -23,6 +23,9 @@ services:
     command: ["node", "server/ws-server.js"]
     environment:
       WS_PORT: 3001
+      # Shared secret gating `seed:true` — must match the seeder's. The
+      # default covers local dev; set a real value in deployments.
+      SEED_TOKEN: ${SEED_TOKEN:-bomb-blast-local-seed}
     restart: unless-stopped
     ports:
       - "3001:3001"
@@ -32,6 +35,7 @@ services:
     command: ["node", "server/lobby-seeder.js"]
     environment:
       WS_URL: ws://ws:3001
+      SEED_TOKEN: ${SEED_TOKEN:-bomb-blast-local-seed}
     restart: unless-stopped
     depends_on:
       - ws
