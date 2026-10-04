@@ -2,6 +2,8 @@
 // Run after starting the server: node server/ws-server.js
 
 const WS_URL = process.env.WS_URL || "ws://localhost:3001";
+// Must match the relay's SEED_TOKEN default for the seeded-lobby cases.
+const SEED_TOKEN = process.env.SEED_TOKEN || "bomb-blast-local-seed";
 
 /** Wrap a WebSocket with a message queue so no messages are lost. */
 function queued(ws) {
@@ -367,11 +369,30 @@ async function run() {
   publicHost2.close();
   privateHost.close();
 
+  // --- seed:true without the shared token is rejected outright ---
+  const badSeed = new WebSocket(WS_URL);
+  await new Promise((r) => (badSeed.onopen = r));
+  const badSeedQ = queued(badSeed);
+  send(badSeed, { t: "create", name: "Rogue", isPublic: true, seed: true });
+  const badSeedReply = await badSeedQ.recv();
+  assert(
+    badSeedReply.t === "error" &&
+      badSeedReply.message === "seed requires a valid seedToken",
+    "seed:true without a valid seedToken is rejected"
+  );
+  badSeed.close();
+
   // --- Seeded lobbies: the seed leaving promotes the first real player ---
   const seedBot = new WebSocket(WS_URL);
   await new Promise((r) => (seedBot.onopen = r));
   const seedBotQ = queued(seedBot);
-  send(seedBot, { t: "create", name: "Fuse", isPublic: true, seed: true });
+  send(seedBot, {
+    t: "create",
+    name: "Fuse",
+    isPublic: true,
+    seed: true,
+    seedToken: SEED_TOKEN,
+  });
   const seedCreated = await seedBotQ.recv();
   const seedCode = seedCreated.code;
   await seedBotQ.recv(); // seed's room broadcast

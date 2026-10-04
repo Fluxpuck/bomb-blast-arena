@@ -22,11 +22,16 @@
 // host (the variable half of a guest's client -> relay -> host path). Rooms
 // created with `isPublic:false` are never listed.
 //
-// A room created with `seed:true` is a seeded lobby (see lobby-seeder.js):
-// when its bot host leaves, the oldest remaining player is promoted to host
-// instead of the room closing, so a seed becomes a real room on first join.
+// A room created with `seed:true` + a matching `seedToken` is a seeded
+// lobby (see lobby-seeder.js): when its bot host leaves, the oldest
+// remaining player is promoted to host instead of the room closing, so a
+// seed becomes a real room on first join. The shared token reserves
+// promotion for the seeder — without it any client could keep a room alive
+// by handing it to another player.
 //
-// Run with: yarn ws  (defaults to port 3001, override with WS_PORT env)
+// Run with: yarn ws  (defaults to port 3001, override with WS_PORT env;
+// SEED_TOKEN overrides the development seed token — set it on relay and
+// seeder alike in deployments)
 
 const { WebSocketServer } = require("ws");
 
@@ -42,6 +47,10 @@ const MAX_LOBBY_PAGE_SIZE = 50;
 // Discord instance ids are opaque strings; cap them so a client can't make
 // the server hold arbitrarily large keys.
 const MAX_INSTANCE_ID_LENGTH = 128;
+// `create` accepts `seed:true` only with this shared token, so only the
+// lobby seeder can opt a room into host promotion. The default covers local
+// development; deployed setups should override it on relay and seeder.
+const SEED_TOKEN = process.env.SEED_TOKEN || "bomb-blast-local-seed";
 
 // =========================
 // Room model
@@ -396,29 +405,31 @@ wss.on("connection", (ws) => {
       registered = true;
 
       if (msg.t === "create") {
-        const code = generateCode();
+        if (msg.seed === true && msg.seedToken !== SEED_TOKEN) {
+          send(ws, { t: "error", message: "seed requires a valid seedToken" });
+          ws.close();
+          return;
+        }
         /** @type {Room} */
         const room = {
-          code,
+          code: generateCode(),
           players: [],
           spectators: [],
           locked: false,
           instanceId: validInstanceId(msg.instanceId),
           // Rooms join the public lobby list unless the creator opts out.
           isPublic: msg.isPublic !== false,
-          // Seeded lobbies promote their first joiner to host when the
-          // seeding bot leaves.
           seeded: msg.seed === true,
         };
         const player = { slot: 0, name: msg.name || "Host", ws, isHost: true };
         room.players.push(player);
-        roomsByCode.set(code, room);
+        roomsByCode.set(room.code, room);
         sessions.set(ws, { room, player, isSpectator: false });
         log(
-          `[room ${code}] created`,
+          `[room ${room.code}] created`,
           room.instanceId ? `(discord instance ${room.instanceId})` : "(no discord instance)"
         );
-        send(ws, { t: "created", code, slot: 0 });
+        send(ws, { t: "created", code: room.code, slot: 0 });
         broadcastRoom(room);
       } else if (msg.t === "join") {
         const room = findRoomByCode(msg.code);
