@@ -367,6 +367,62 @@ async function run() {
   publicHost2.close();
   privateHost.close();
 
+  // --- Seeded lobbies: the seed leaving promotes the first real player ---
+  const seedBot = new WebSocket(WS_URL);
+  await new Promise((r) => (seedBot.onopen = r));
+  const seedBotQ = queued(seedBot);
+  send(seedBot, { t: "create", name: "Fuse", isPublic: true, seed: true });
+  const seedCreated = await seedBotQ.recv();
+  const seedCode = seedCreated.code;
+  await seedBotQ.recv(); // seed's room broadcast
+
+  const seedJoiner = new WebSocket(WS_URL);
+  await new Promise((r) => (seedJoiner.onopen = r));
+  const seedJoinerQ = queued(seedJoiner);
+  send(seedJoiner, { t: "join", code: seedCode, name: "Uma" });
+  const seedJoined = await seedJoinerQ.recv();
+  assert(
+    seedJoined.t === "joined" && seedJoined.slot === 1,
+    "joiner takes a player slot in the seeded lobby"
+  );
+  const seedJoinerRoom = await seedJoinerQ.recv();
+  assert(
+    seedJoinerRoom.t === "room" && seedJoinerRoom.players.length === 2,
+    "seeded lobby shows seed + joiner"
+  );
+
+  send(seedBot, { t: "leave" });
+  const promotedRoom = await seedJoinerQ.recv();
+  assert(
+    promotedRoom.t === "room" &&
+      promotedRoom.players.length === 1 &&
+      promotedRoom.players[0].isHost === true,
+    "joiner is promoted to host when the seed leaves"
+  );
+
+  // The promoted room is normal: when its new host leaves it closes instead
+  // of promoting again.
+  const seedWatcher = new WebSocket(WS_URL);
+  await new Promise((r) => (seedWatcher.onopen = r));
+  const seedWatcherQ = queued(seedWatcher);
+  send(seedWatcher, { t: "browse", page: 0, pageSize: 8 });
+  const seededList = await seedWatcherQ.recv();
+  assert(
+    seededList.lobbies.some((l) => l.code === seedCode),
+    "promoted lobby stays on the public list"
+  );
+  seedJoiner.close();
+  await new Promise((r) => setTimeout(r, 150));
+  send(seedWatcher, { t: "browse", page: 0, pageSize: 8 });
+  const closedSeedList = await seedWatcherQ.recv();
+  assert(
+    !closedSeedList.lobbies.some((l) => l.code === seedCode),
+    "promoted lobby closes when its real host leaves"
+  );
+
+  seedWatcher.close();
+  seedBot.close();
+
   // Let in-flight socket closes settle before exiting — exiting mid-close
   // trips a libuv assertion on Windows.
   await new Promise((r) => setTimeout(r, 300));

@@ -27,6 +27,15 @@ services:
     ports:
       - "3001:3001"
 
+  seeder:
+    build: .
+    command: ["node", "server/lobby-seeder.js"]
+    environment:
+      WS_URL: ws://ws:3001
+    restart: unless-stopped
+    depends_on:
+      - ws
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     command: tunnel --no-autoupdate run

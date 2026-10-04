@@ -22,6 +22,10 @@
 // host (the variable half of a guest's client -> relay -> host path). Rooms
 // created with `isPublic:false` are never listed.
 //
+// A room created with `seed:true` is a seeded lobby (see lobby-seeder.js):
+// when its bot host leaves, the oldest remaining player is promoted to host
+// instead of the room closing, so a seed becomes a real room on first join.
+//
 // Run with: yarn ws  (defaults to port 3001, override with WS_PORT env)
 
 const { WebSocketServer } = require("ws");
@@ -45,7 +49,7 @@ const MAX_INSTANCE_ID_LENGTH = 128;
 /**
  * @typedef {{ slot: number, name: string, ws: import("ws").WebSocket, isHost: boolean }} Player
  * @typedef {{ name: string, ws: import("ws").WebSocket }} Spectator
- * @typedef {{ code: string, players: Player[], spectators: Spectator[], locked: boolean, instanceId: string | null, isPublic: boolean }} Room
+ * @typedef {{ code: string, players: Player[], spectators: Spectator[], locked: boolean, instanceId: string | null, isPublic: boolean, seeded: boolean }} Room
  * @typedef {{ room: Room, player: Player | Spectator, isSpectator: boolean } | { browser: true, ws: import("ws").WebSocket }} Session
  */
 
@@ -231,8 +235,16 @@ function leaveRoom(session) {
   );
 
   // Notify remaining members of the new roster. If the host left, close the
-  // room and tell guests + spectators to return to the lobby.
-  if (wasHost) {
+  // room and tell guests + spectators to return to the lobby — unless this
+  // was a seeded lobby with real players inside: then the oldest player is
+  // promoted to host and the room lives on as a normal room.
+  const canPromoteHost = wasHost && room.seeded && room.players.length > 0;
+  if (canPromoteHost) {
+    room.players[0].isHost = true;
+    room.seeded = false;
+    log(`[room ${room.code}] seed left, slot ${room.players[0].slot} promoted to host`);
+    broadcastRoom(room);
+  } else if (wasHost) {
     for (const p of room.players) {
       send(p.ws, { t: "hostLeft" });
       sessions.delete(p.ws);
@@ -394,6 +406,9 @@ wss.on("connection", (ws) => {
           instanceId: validInstanceId(msg.instanceId),
           // Rooms join the public lobby list unless the creator opts out.
           isPublic: msg.isPublic !== false,
+          // Seeded lobbies promote their first joiner to host when the
+          // seeding bot leaves.
+          seeded: msg.seed === true,
         };
         const player = { slot: 0, name: msg.name || "Host", ws, isHost: true };
         room.players.push(player);
