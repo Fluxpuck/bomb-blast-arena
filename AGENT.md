@@ -149,7 +149,19 @@ run headless on the server or in lockstep. Instead:
   re-send the start payload. A `join` that finds no free player slot (room
   full or already locked) lands as a spectator instead of failing, and lobby
   members switch roles with `setRole` — the host can't spectate (no host
-  migration). Never inspects game payloads.
+  migration). Rooms are public by default (`create` accepts `isPublic:false`)
+  and the `browse` message pages the public lobby list, sorted by the
+  relay-measured heartbeat RTT to each room's host. A `create` with
+  `seed:true` + the shared `seedToken` marks a seeder lobby: its bot host
+  leaving promotes the oldest remaining player to host instead of closing
+  the room. Never inspects game payloads.
+- **Lobby seeder** (`server/lobby-seeder.js`): keeps >=`SEED_MIN_LOBBIES`
+  (default 3) open public lobbies alive (full/locked rooms don't count),
+  checking every `SEED_INTERVAL_MS` (default 4 min) via a `browse` socket
+  and hosting `seed:true` rooms under themed names. When a real player
+  joins, the bot leaves and the joiner is promoted to host. `yarn seed` or
+  the `seeder` docker-compose service. `SEED_TOKEN` must match the relay's
+  (default `bomb-blast-local-seed`; override both in deployments).
 - **Host browser** runs the real engine unchanged and streams authoritative
   state. `src/game/net/host.ts` relays bomb blasts (`setOnBombExplode`) and
   broadcasts full state snapshots every `NET_CONFIG.snapshotIntervalMs` (50ms)
@@ -178,12 +190,15 @@ run headless on the server or in lockstep. Instead:
 
 | Module | Responsibility |
 | --- | --- |
-| `server/ws-server.js` | Relay server: rooms, codes, slots, message forwarding |
+| `server/ws-server.js` | Relay server: rooms, codes, slots, message forwarding, `browse` public-lobby listing, seed host promotion |
+| `server/lobby-seeder.js` | Keeps >=3 public lobbies alive so the server list is never empty |
 | `src/types/multiplayer.ts` | Protocol types (room messages, game payloads, snapshots) |
 | `src/game/net/roomClient.ts` | Singleton WebSocket client wrapper + event setters |
+| `src/game/net/publicLobbies.ts` | One-shot `browse` fetch for the public server list |
+| `src/hooks/usePublicLobbies.ts` | Paged, auto-refreshing public lobby list state for the lobby screen |
 | `src/game/net/host.ts` | Host: snapshot broadcast, blast relay, guest input routing |
 | `src/game/net/guest.ts` | Guest: grid rebuild, snapshot apply, keyboard→host, sounds |
-| `src/components/screens/lobbyScreen.tsx` | Create/join room UI, roster, player/spectator role switching, host start controls |
+| `src/components/screens/lobbyScreen.tsx` | Create/join room UI, public/private toggle, public server list, roster, player/spectator role switching, host start controls |
 
 ### Smoke test
 

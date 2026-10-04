@@ -66,6 +66,9 @@ export const NET_CONFIG = {
   // Online host simulation cadence. setInterval is less aggressively paused
   // than requestAnimationFrame when a host window is backgrounded.
   simulationIntervalMs: 16,
+  // How often the lobby screen re-fetches the public server list so latency
+  // readings and full/in-game badges stay current.
+  publicLobbyRefreshMs: 5000,
 };
 
 export function getServerUrl(): string {

@@ -141,7 +141,8 @@ export function Screen({ children }: { children: ReactNode }) {
   );
 }
 
-/** Raised dialog panel. `width` is the max width in px. */
+/** Raised dialog panel. `width` is its desktop width — the Screen wrapper
+ *  scales the whole panel down on viewports too narrow to fit it. */
 export function Panel({
   children,
   width = 440,
@@ -154,10 +155,10 @@ export function Panel({
   return (
     <div
       className={cx(
-        "m-auto w-full p-7 text-ui-text rounded-[18px] border-2 border-ui-line bg-linear-to-b from-ui-panel-top to-ui-panel-bottom shadow-[0_24px_60px_rgba(0,0,0,.55),inset_0_1px_0_rgba(255,255,255,.07)]",
+        "m-auto p-7 text-ui-text rounded-[18px] border-2 border-ui-line bg-linear-to-b from-ui-panel-top to-ui-panel-bottom shadow-[0_24px_60px_rgba(0,0,0,.55),inset_0_1px_0_rgba(255,255,255,.07)]",
         className
       )}
-      style={{ maxWidth: width } as CSSProperties}
+      style={{ width } as CSSProperties}
     >
       {children}
     </div>

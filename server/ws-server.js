@@ -16,7 +16,22 @@
 // one instance — that powers the "Join <host>'s Lobby" buttons, so everyone
 // in the same Activity can find the host without sharing a code.
 //
-// Run with: yarn ws  (defaults to port 3001, override with WS_PORT env)
+// Rooms are public by default: any socket may open with `browse` and keep
+// sending `{t:"browse", page, pageSize}` requests to page through the public
+// lobby list, sorted by the relay-measured round-trip latency to each lobby's
+// host (the variable half of a guest's client -> relay -> host path). Rooms
+// created with `isPublic:false` are never listed.
+//
+// A room created with `seed:true` + a matching `seedToken` is a seeded
+// lobby (see lobby-seeder.js): when its bot host leaves, the oldest
+// remaining player is promoted to host instead of the room closing, so a
+// seed becomes a real room on first join. The shared token reserves
+// promotion for the seeder — without it any client could keep a room alive
+// by handing it to another player.
+//
+// Run with: yarn ws  (defaults to port 3001, override with WS_PORT env;
+// SEED_TOKEN overrides the development seed token — set it on relay and
+// seeder alike in deployments)
 
 const { WebSocketServer } = require("ws");
 
@@ -27,9 +42,15 @@ const CODE_LENGTH = 4;
 // Alphabet without ambiguous characters (no I, O, 0, 1).
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const HEARTBEAT_INTERVAL_MS = 30000;
+const DEFAULT_LOBBY_PAGE_SIZE = 8;
+const MAX_LOBBY_PAGE_SIZE = 50;
 // Discord instance ids are opaque strings; cap them so a client can't make
 // the server hold arbitrarily large keys.
 const MAX_INSTANCE_ID_LENGTH = 128;
+// `create` accepts `seed:true` only with this shared token, so only the
+// lobby seeder can opt a room into host promotion. The default covers local
+// development; deployed setups should override it on relay and seeder.
+const SEED_TOKEN = process.env.SEED_TOKEN || "bomb-blast-local-seed";
 
 // =========================
 // Room model
@@ -37,8 +58,8 @@ const MAX_INSTANCE_ID_LENGTH = 128;
 /**
  * @typedef {{ slot: number, name: string, ws: import("ws").WebSocket, isHost: boolean }} Player
  * @typedef {{ name: string, ws: import("ws").WebSocket }} Spectator
- * @typedef {{ code: string, players: Player[], spectators: Spectator[], locked: boolean, instanceId: string | null }} Room
- * @typedef {{ room: Room, player: Player | Spectator, isSpectator: boolean }} Session
+ * @typedef {{ code: string, players: Player[], spectators: Spectator[], locked: boolean, instanceId: string | null, isPublic: boolean, seeded: boolean }} Room
+ * @typedef {{ room: Room, player: Player | Spectator, isSpectator: boolean } | { browser: true, ws: import("ws").WebSocket }} Session
  */
 
 /** @type {Map<string, Room>} */
@@ -121,6 +142,66 @@ function instanceLobbies(instanceId) {
   return lobbies;
 }
 
+/**
+ * All public rooms as browse entries, sorted by the relay's measured
+ * round-trip latency to each lobby's host. Rooms whose host hasn't answered
+ * one heartbeat ping yet (latencyMs null) sort last, then by code for a
+ * stable order.
+ */
+function publicLobbies() {
+  const lobbies = [];
+  for (const room of roomsByCode.values()) {
+    if (!room.isPublic) continue;
+    const host = room.players.find((p) => p.isHost);
+    if (!host) continue;
+    lobbies.push({
+      code: room.code,
+      hostName: host.name,
+      playerCount: room.players.length,
+      maxPlayers: MAX_PLAYERS_PER_ROOM,
+      locked: room.locked,
+      latencyMs: typeof host.ws.bbaRttMs === "number" ? host.ws.bbaRttMs : null,
+    });
+  }
+  lobbies.sort(
+    (a, b) =>
+      (a.latencyMs ?? Infinity) - (b.latencyMs ?? Infinity) ||
+      a.code.localeCompare(b.code)
+  );
+  return lobbies;
+}
+
+/**
+ * Answer one `{t:"browse", page, pageSize}` request (0-based page). Both
+ * fields must be finite numbers — anything else (strings, NaN, Infinity)
+ * falls back to the defaults so a malformed request can't produce a
+ * non-finite page offset.
+ */
+function sendLobbyList(ws, msg) {
+  const requestedPageSize =
+    typeof msg.pageSize === "number" && Number.isFinite(msg.pageSize)
+      ? Math.trunc(msg.pageSize)
+      : DEFAULT_LOBBY_PAGE_SIZE;
+  const pageSize = Math.min(
+    Math.max(requestedPageSize, 1),
+    MAX_LOBBY_PAGE_SIZE
+  );
+  const all = publicLobbies();
+  const pageCount = Math.max(1, Math.ceil(all.length / pageSize));
+  const requestedPage =
+    typeof msg.page === "number" && Number.isFinite(msg.page)
+      ? Math.trunc(msg.page)
+      : 0;
+  const page = Math.min(Math.max(requestedPage, 0), pageCount - 1);
+  send(ws, {
+    t: "lobbyList",
+    lobbies: all.slice(page * pageSize, (page + 1) * pageSize),
+    page,
+    pageSize,
+    total: all.length,
+  });
+}
+
 /** Push the current lobby list to everyone watching the room's instance. */
 function notifyInstance(instanceId) {
   if (!instanceId) return;
@@ -176,8 +257,16 @@ function leaveRoom(session) {
   );
 
   // Notify remaining members of the new roster. If the host left, close the
-  // room and tell guests + spectators to return to the lobby.
-  if (wasHost) {
+  // room and tell guests + spectators to return to the lobby — unless this
+  // was a seeded lobby with real players inside: then the oldest player is
+  // promoted to host and the room lives on as a normal room.
+  const canPromoteHost = wasHost && room.seeded && room.players.length > 0;
+  if (canPromoteHost) {
+    room.players[0].isHost = true;
+    room.seeded = false;
+    log(`[room ${room.code}] seed left, slot ${room.players[0].slot} promoted to host`);
+    broadcastRoom(room);
+  } else if (wasHost) {
     for (const p of room.players) {
       send(p.ws, { t: "hostLeft" });
       sessions.delete(p.ws);
@@ -207,6 +296,13 @@ function handleMessage(session, data) {
   try {
     msg = JSON.parse(data.toString());
   } catch {
+    return;
+  }
+
+  // Browser sockets never join a room: the only message they may send is a
+  // repeated browse request, answered with the requested page.
+  if (session.browser) {
+    if (msg.t === "browse") sendLobbyList(session.ws, msg);
     return;
   }
 
@@ -322,24 +418,31 @@ wss.on("connection", (ws) => {
       registered = true;
 
       if (msg.t === "create") {
-        const code = generateCode();
+        if (msg.seed === true && msg.seedToken !== SEED_TOKEN) {
+          send(ws, { t: "error", message: "seed requires a valid seedToken" });
+          ws.close();
+          return;
+        }
         /** @type {Room} */
         const room = {
-          code,
+          code: generateCode(),
           players: [],
           spectators: [],
           locked: false,
           instanceId: validInstanceId(msg.instanceId),
+          // Rooms join the public lobby list unless the creator opts out.
+          isPublic: msg.isPublic !== false,
+          seeded: msg.seed === true,
         };
         const player = { slot: 0, name: msg.name || "Host", ws, isHost: true };
         room.players.push(player);
-        roomsByCode.set(code, room);
+        roomsByCode.set(room.code, room);
         sessions.set(ws, { room, player, isSpectator: false });
         log(
-          `[room ${code}] created`,
+          `[room ${room.code}] created`,
           room.instanceId ? `(discord instance ${room.instanceId})` : "(no discord instance)"
         );
-        send(ws, { t: "created", code, slot: 0 });
+        send(ws, { t: "created", code: room.code, slot: 0 });
         broadcastRoom(room);
       } else if (msg.t === "join") {
         const room = findRoomByCode(msg.code);
@@ -366,6 +469,12 @@ wss.on("connection", (ws) => {
         log(`[room ${room.code}] player joined slot ${slot} (${room.players.length}/${MAX_PLAYERS_PER_ROOM})`);
         send(ws, { t: "joined", code: room.code, slot });
         broadcastRoom(room);
+      } else if (msg.t === "browse") {
+        // Read-only socket for the public lobby list; never joins a room.
+        // The socket stays open so the client can page or refresh with
+        // further browse requests handled by handleMessage.
+        sessions.set(ws, { browser: true, ws });
+        sendLobbyList(ws, msg);
       } else if (msg.t === "spectate") {
         const room = findRoomByCode(msg.code);
         if (!room) {
@@ -404,7 +513,7 @@ wss.on("connection", (ws) => {
         send(ws, { t: "lobbies", lobbies: instanceLobbies(instanceId) });
       } else {
         log(`[connection] rejected: unexpected first message "${msg.t}"`);
-        send(ws, { t: "error", message: "Expected create, join, spectate or watch first" });
+        send(ws, { t: "error", message: "Expected create, join, spectate, watch or browse first" });
         ws.close();
       }
       return;
@@ -415,10 +524,16 @@ wss.on("connection", (ws) => {
     handleMessage(session, data);
   });
 
+  ws.on("pong", () => {
+    if (typeof ws.bbaPingSentAt === "number") {
+      ws.bbaRttMs = Date.now() - ws.bbaPingSentAt;
+    }
+  });
+
   ws.on("close", () => {
     const session = sessions.get(ws);
     if (session) {
-      leaveRoom(session);
+      if (!session.browser) leaveRoom(session);
       sessions.delete(ws);
     }
   });
@@ -434,6 +549,9 @@ wss.on("connection", (ws) => {
 setInterval(() => {
   for (const ws of wss.clients) {
     if (ws.readyState === ws.OPEN) {
+      // Stamp before pinging so the pong handler can record the RTT — that
+      // becomes the latency shown on the public lobby list.
+      ws.bbaPingSentAt = Date.now();
       ws.ping();
     }
   }

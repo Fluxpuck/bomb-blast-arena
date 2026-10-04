@@ -2,6 +2,8 @@
 // Run after starting the server: node server/ws-server.js
 
 const WS_URL = process.env.WS_URL || "ws://localhost:3001";
+// Must match the relay's SEED_TOKEN default for the seeded-lobby cases.
+const SEED_TOKEN = process.env.SEED_TOKEN || "bomb-blast-local-seed";
 
 /** Wrap a WebSocket with a message queue so no messages are lost. */
 function queued(ws) {
@@ -288,6 +290,159 @@ async function run() {
 
   watcher.close();
   otherHost.close();
+
+  // --- Public lobby list: browse pages public rooms only ---
+  const browser = new WebSocket(WS_URL);
+  await new Promise((r) => (browser.onopen = r));
+  const browserQ = queued(browser);
+  send(browser, { t: "browse", page: 0, pageSize: 8 });
+  const emptyList = await browserQ.recv();
+  assert(
+    emptyList.t === "lobbyList" && emptyList.total === 0,
+    "browser sees an empty public lobby list"
+  );
+
+  const publicHost = new WebSocket(WS_URL);
+  await new Promise((r) => (publicHost.onopen = r));
+  const publicHostQ = queued(publicHost);
+  send(publicHost, { t: "create", name: "Mika" });
+  const publicCreated = await publicHostQ.recv();
+
+  const publicHost2 = new WebSocket(WS_URL);
+  await new Promise((r) => (publicHost2.onopen = r));
+  const publicHost2Q = queued(publicHost2);
+  send(publicHost2, { t: "create", name: "Nao" });
+  await publicHost2Q.recv();
+
+  const privateHost = new WebSocket(WS_URL);
+  await new Promise((r) => (privateHost.onopen = r));
+  const privateHostQ = queued(privateHost);
+  send(privateHost, { t: "create", name: "Oto", isPublic: false });
+  await privateHostQ.recv();
+
+  // Page through the list on the same socket: the private room never shows.
+  send(browser, { t: "browse", page: 0, pageSize: 1 });
+  const firstPage = await browserQ.recv();
+  assert(
+    firstPage.t === "lobbyList" &&
+      firstPage.total === 2 &&
+      firstPage.lobbies.length === 1 &&
+      firstPage.pageSize === 1,
+    "browse first page returns one of two public lobbies"
+  );
+  send(browser, { t: "browse", page: 1, pageSize: 1 });
+  const secondPage = await browserQ.recv();
+  assert(
+    secondPage.t === "lobbyList" &&
+      secondPage.page === 1 &&
+      secondPage.lobbies.length === 1,
+    "browse second page returns the other public lobby"
+  );
+  const listedCodes = new Set([
+    firstPage.lobbies[0].code,
+    secondPage.lobbies[0].code,
+  ]);
+  assert(
+    listedCodes.has(publicCreated.code) && listedCodes.size === 2,
+    "both public rooms are listed (private room is not)"
+  );
+  const entry = firstPage.lobbies[0];
+  assert(
+    typeof entry.hostName === "string" &&
+      entry.maxPlayers === 4 &&
+      entry.locked === false &&
+      (entry.latencyMs === null || typeof entry.latencyMs === "number"),
+    "lobby entry carries host name, capacity, lock and latency"
+  );
+
+  // A browse socket may only browse: a non-browse message is ignored.
+  send(browser, { t: "leave" });
+  send(browser, { t: "browse", page: 0, pageSize: 8 });
+  const afterLeave = await browserQ.recv();
+  assert(
+    afterLeave.t === "lobbyList" && afterLeave.total === 2,
+    "browser socket ignores non-browse messages"
+  );
+
+  browser.close();
+  publicHost.close();
+  publicHost2.close();
+  privateHost.close();
+
+  // --- seed:true without the shared token is rejected outright ---
+  const badSeed = new WebSocket(WS_URL);
+  await new Promise((r) => (badSeed.onopen = r));
+  const badSeedQ = queued(badSeed);
+  send(badSeed, { t: "create", name: "Rogue", isPublic: true, seed: true });
+  const badSeedReply = await badSeedQ.recv();
+  assert(
+    badSeedReply.t === "error" &&
+      badSeedReply.message === "seed requires a valid seedToken",
+    "seed:true without a valid seedToken is rejected"
+  );
+  badSeed.close();
+
+  // --- Seeded lobbies: the seed leaving promotes the first real player ---
+  const seedBot = new WebSocket(WS_URL);
+  await new Promise((r) => (seedBot.onopen = r));
+  const seedBotQ = queued(seedBot);
+  send(seedBot, {
+    t: "create",
+    name: "Fuse",
+    isPublic: true,
+    seed: true,
+    seedToken: SEED_TOKEN,
+  });
+  const seedCreated = await seedBotQ.recv();
+  const seedCode = seedCreated.code;
+  await seedBotQ.recv(); // seed's room broadcast
+
+  const seedJoiner = new WebSocket(WS_URL);
+  await new Promise((r) => (seedJoiner.onopen = r));
+  const seedJoinerQ = queued(seedJoiner);
+  send(seedJoiner, { t: "join", code: seedCode, name: "Uma" });
+  const seedJoined = await seedJoinerQ.recv();
+  assert(
+    seedJoined.t === "joined" && seedJoined.slot === 1,
+    "joiner takes a player slot in the seeded lobby"
+  );
+  const seedJoinerRoom = await seedJoinerQ.recv();
+  assert(
+    seedJoinerRoom.t === "room" && seedJoinerRoom.players.length === 2,
+    "seeded lobby shows seed + joiner"
+  );
+
+  send(seedBot, { t: "leave" });
+  const promotedRoom = await seedJoinerQ.recv();
+  assert(
+    promotedRoom.t === "room" &&
+      promotedRoom.players.length === 1 &&
+      promotedRoom.players[0].isHost === true,
+    "joiner is promoted to host when the seed leaves"
+  );
+
+  // The promoted room is normal: when its new host leaves it closes instead
+  // of promoting again.
+  const seedWatcher = new WebSocket(WS_URL);
+  await new Promise((r) => (seedWatcher.onopen = r));
+  const seedWatcherQ = queued(seedWatcher);
+  send(seedWatcher, { t: "browse", page: 0, pageSize: 8 });
+  const seededList = await seedWatcherQ.recv();
+  assert(
+    seededList.lobbies.some((l) => l.code === seedCode),
+    "promoted lobby stays on the public list"
+  );
+  seedJoiner.close();
+  await new Promise((r) => setTimeout(r, 150));
+  send(seedWatcher, { t: "browse", page: 0, pageSize: 8 });
+  const closedSeedList = await seedWatcherQ.recv();
+  assert(
+    !closedSeedList.lobbies.some((l) => l.code === seedCode),
+    "promoted lobby closes when its real host leaves"
+  );
+
+  seedWatcher.close();
+  seedBot.close();
 
   // Let in-flight socket closes settle before exiting — exiting mid-close
   // trips a libuv assertion on Windows.
