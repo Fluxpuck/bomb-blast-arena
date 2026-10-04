@@ -80,6 +80,9 @@ export function LobbyScreen({
   const [fillBots, setFillBots] = useState(true);
   // Rooms join the public server list unless the creator opts out.
   const [isPublic, setIsPublic] = useState(true);
+  // Multiplayer opens on the public server list; "Create Room" leads to the
+  // separate create/join view.
+  const [view, setView] = useState<"servers" | "create">("servers");
   // Fetching stops inside a room — the list is irrelevant there.
   const serverList = usePublicLobbies(roomCode === null);
   const [copied, setCopied] = useState(false);
@@ -135,12 +138,18 @@ export function LobbyScreen({
       <Panel width={inRoom ? 720 : 440}>
         <Heading
           title="MULTIPLAYER"
-          subtitle={inRoom ? "Room lobby" : "Create or join a room"}
+          subtitle={
+            inRoom
+              ? "Room lobby"
+              : view === "servers"
+                ? "Public servers"
+                : "Create or join a room"
+          }
           tone="cyan"
         />
 
-        {/* Create / Join (only before entering a room) */}
-        {!inRoom && (
+        {/* Server list — the first multiplayer view. */}
+        {!inRoom && view === "servers" && (
           <div className="flex flex-col gap-4">
             <div>
               <label htmlFor="nickname" className="block mb-2">
@@ -168,30 +177,6 @@ export function LobbyScreen({
                 {lobbyButtonLabel(lobby)}
               </Button>
             ))}
-
-            <label className="flex items-center gap-3 text-sm cursor-pointer select-none">
-              <Checkbox
-                checked={isPublic}
-                onChange={(e) => setIsPublic(e.target.checked)}
-              />
-              List this lobby publicly
-            </label>
-
-            <Button
-              block
-              variant="purple"
-              size="lg"
-              disabled={!name.trim() || connecting}
-              onClick={() => onCreate(name.trim(), isPublic)}
-            >
-              {connecting ? "Connecting…" : "Create Room"}
-            </Button>
-
-            <div className="flex items-center gap-3">
-              <span className="flex-1 h-px bg-ui-line" />
-              <Label>public servers</Label>
-              <span className="flex-1 h-px bg-ui-line" />
-            </div>
 
             {/* Public lobby list, sorted by relay-measured host latency.
                 Full or in-game lobbies land the join as a spectator, so the
@@ -282,6 +267,51 @@ export function LobbyScreen({
               )}
             </div>
 
+            <Button
+              block
+              variant="purple"
+              size="lg"
+              onClick={() => setView("create")}
+            >
+              Create Room
+            </Button>
+          </div>
+        )}
+
+        {/* Create / join-with-code — reached from the server list. */}
+        {!inRoom && view === "create" && (
+          <div className="flex flex-col gap-4">
+            <div>
+              <label htmlFor="nickname-create" className="block mb-2">
+                <Label>Your nickname</Label>
+              </label>
+              <TextInput
+                id="nickname-create"
+                value={name}
+                maxLength={16}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Enter a nickname"
+              />
+            </div>
+
+            <label className="flex items-center gap-3 text-sm cursor-pointer select-none">
+              <Checkbox
+                checked={isPublic}
+                onChange={(e) => setIsPublic(e.target.checked)}
+              />
+              List this lobby publicly
+            </label>
+
+            <Button
+              block
+              variant="purple"
+              size="lg"
+              disabled={!name.trim() || connecting}
+              onClick={() => onCreate(name.trim(), isPublic)}
+            >
+              {connecting ? "Connecting…" : "Create Room"}
+            </Button>
+
             <div className="flex items-center gap-3">
               <span className="flex-1 h-px bg-ui-line" />
               <Label>or join with code</Label>
@@ -306,6 +336,12 @@ export function LobbyScreen({
               >
                 Join
               </Button>
+            </div>
+
+            <div className="text-center">
+              <LinkButton onClick={() => setView("servers")}>
+                ← Back to server list
+              </LinkButton>
             </div>
           </div>
         )}

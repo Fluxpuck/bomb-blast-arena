@@ -11,7 +11,7 @@ import { PublicLobby } from "../types/multiplayer";
 // screen is open. Disabled while inside a room — the list is irrelevant then
 // and the browse sockets would leak.
 
-export const PUBLIC_LOBBY_PAGE_SIZE = 6;
+export const PUBLIC_LOBBY_PAGE_SIZE = 10;
 
 export interface PublicLobbyState {
   lobbies: PublicLobby[];
