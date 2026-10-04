@@ -680,12 +680,14 @@ export function LobbyScreen({
             ? undefined
             : // 8rem clearance leaves room for the fixed audio pill that sits
               // bottom-centre on desktop instead of overlapping the footer.
-              "w-[min(1100px,calc(100vw-2rem))] max-h-[calc(100dvh-8rem)] overflow-y-auto"
+              // The panel never scrolls itself — the room list does. On
+              // mobile the sheet still needs whole-panel scrolling.
+              "w-[min(1100px,calc(100vw-2rem))] max-h-[calc(100dvh-8rem)] flex flex-col max-sm:overflow-y-auto"
         }
       >
         {/* ============ Lobby browser — desktop (>= sm) ============ */}
         {!inRoom && view === "browse" && (
-          <div className="hidden sm:flex flex-col gap-5">
+          <div className="hidden sm:flex flex-col gap-5 flex-1 min-h-0">
             {/* Header: title + subtitle left, nickname chip right. */}
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -707,9 +709,11 @@ export function LobbyScreen({
               />
             </div>
 
-            {/* Body: room list left, join/host cards right. */}
-            <div className="grid grid-cols-[minmax(0,1fr)_300px] gap-6">
-              <div className="flex flex-col gap-3 min-w-0">
+            {/* Body: room list left, join/host cards right. The grid row
+                is minmax(0,1fr) so the column can shrink — the room list
+                absorbs overflow with its own scrollbar. */}
+            <div className="grid grid-cols-[minmax(0,1fr)_300px] grid-rows-[minmax(0,1fr)] gap-6 flex-1 min-h-0">
+              <div className="flex flex-col gap-3 min-w-0 min-h-0">
                 {discordLobbyButtons}
 
                 {/* Toolbar: filter tabs + last-refresh stamp. */}
@@ -745,8 +749,8 @@ export function LobbyScreen({
                   <span />
                 </div>
 
-                {/* Room rows */}
-                <div className="flex flex-col gap-1.5 h-[392px] overflow-y-auto pr-1">
+                {/* Room rows — the only scrollable part of the modal. */}
+                <div className="flex flex-col gap-1.5 flex-1 min-h-0 overflow-y-auto pr-1">
                   {visibleLobbies.map((lobby) => {
                     const status = lobbyStatus(lobby);
                     const mapName = lobbyMapName(lobby);
@@ -795,58 +799,64 @@ export function LobbyScreen({
                 </div>
               </div>
 
-              {/* Right column: join with code. */}
-              <form
-                className="self-start flex flex-col gap-3 rounded-[14px] bg-white/[.04] border border-[rgba(124,196,255,.14)] p-4"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  joinByCode();
-                }}
-              >
-                <Label>Join with code</Label>
-                <input
-                  type="text"
-                  value={joinCode}
-                  maxLength={CODE_LENGTH}
-                  onChange={(e) => handleCodeChange(e.target.value)}
-                  placeholder="CODE"
-                  aria-label="Room code"
-                  className={cx(
-                    INPUT_BASE,
-                    "w-full px-3.5 py-2.5 text-center text-[26px] font-bold text-ui-yellow tracking-[0.4em] uppercase"
-                  )}
-                />
-                <Button
-                  type="submit"
-                  variant="green"
-                  disabled={!codeIsValid || connecting}
+              {/* Right column: join with code, then host your own. */}
+              <div className="self-start flex flex-col gap-3">
+                <form
+                  className="flex flex-col gap-3 rounded-[14px] bg-white/[.04] border border-[rgba(124,196,255,.14)] p-4"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    joinByCode();
+                  }}
                 >
-                  Join Room
-                </Button>
-                <Hint>
-                  Private rooms only show up here — ask the host for their
-                  4-letter code.
-                </Hint>
-              </form>
-            </div>
-
-            {/* Footer: back link left, status + create right. */}
-            <div className="flex items-center justify-between gap-4">
-              <LinkButton onClick={onBack}>← Back to menu</LinkButton>
-              <span className="flex items-center gap-4">
-                {statusText && (
-                  <span className="font-mono text-xs font-bold text-ui-yellow">
-                    {statusText}
-                  </span>
-                )}
+                  <Label>Join with code</Label>
+                  <input
+                    type="text"
+                    value={joinCode}
+                    maxLength={CODE_LENGTH}
+                    onChange={(e) => handleCodeChange(e.target.value)}
+                    placeholder="CODE"
+                    aria-label="Room code"
+                    className={cx(
+                      INPUT_BASE,
+                      "w-full px-3.5 py-2.5 text-center text-[26px] font-bold text-ui-yellow tracking-[0.4em] uppercase"
+                    )}
+                  />
+                  <Button
+                    type="submit"
+                    variant="green"
+                    disabled={!codeIsValid || connecting}
+                  >
+                    Join Room
+                  </Button>
+                  <Hint>
+                    Private rooms only show up here — ask the host for their
+                    4-letter code.
+                  </Hint>
+                </form>
+                <div className="flex items-center gap-3">
+                  <span className="h-px flex-1 bg-[rgba(124,196,255,.16)]" />
+                  <Hint>or host your own</Hint>
+                  <span className="h-px flex-1 bg-[rgba(124,196,255,.16)]" />
+                </div>
                 <Button
+                  block
                   variant="purple"
                   size="lg"
                   onClick={() => setView("create")}
                 >
                   + Create Lobby
                 </Button>
-              </span>
+              </div>
+            </div>
+
+            {/* Footer: back link left, status right. */}
+            <div className="flex items-center justify-between gap-4">
+              <LinkButton onClick={onBack}>← Back to menu</LinkButton>
+              {statusText && (
+                <span className="font-mono text-xs font-bold text-ui-yellow">
+                  {statusText}
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -907,6 +917,16 @@ export function LobbyScreen({
               </Button>
             </form>
 
+            {/* Create sits with the join action, same as the desktop card. */}
+            <Button
+              block
+              variant="purple"
+              size="lg"
+              onClick={() => setView("create")}
+            >
+              + Create Lobby
+            </Button>
+
             <Segmented options={tabOptions} value={tab} onChange={setTab} />
 
             {/* Compact rows: name on top, dots · map · ping underneath. */}
@@ -949,16 +969,6 @@ export function LobbyScreen({
                 {statusText}
               </span>
             )}
-
-            {/* Create opens the dedicated host menu, same as desktop. */}
-            <Button
-              block
-              variant="purple"
-              size="lg"
-              onClick={() => setView("create")}
-            >
-              + Create Lobby
-            </Button>
           </div>
         )}
 
