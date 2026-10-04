@@ -152,14 +152,16 @@ run headless on the server or in lockstep. Instead:
   migration). Rooms are public by default (`create` accepts `isPublic:false`)
   and the `browse` message pages the public lobby list, sorted by the
   relay-measured heartbeat RTT to each room's host. A `create` with
-  `seed:true` marks a seeder lobby: its bot host leaving promotes the oldest
-  remaining player to host instead of closing the room. Never inspects game
-  payloads.
+  `seed:true` + the shared `seedToken` marks a seeder lobby: its bot host
+  leaving promotes the oldest remaining player to host instead of closing
+  the room. Never inspects game payloads.
 - **Lobby seeder** (`server/lobby-seeder.js`): keeps >=`SEED_MIN_LOBBIES`
-  (default 3) public lobbies alive, checking every `SEED_INTERVAL_MS`
-  (default 4 min) via a `browse` socket and hosting `seed:true` rooms under
-  themed names. When a real player joins, the bot leaves and the joiner is
-  promoted to host. `yarn seed` or the `seeder` docker-compose service.
+  (default 3) open public lobbies alive (full/locked rooms don't count),
+  checking every `SEED_INTERVAL_MS` (default 4 min) via a `browse` socket
+  and hosting `seed:true` rooms under themed names. When a real player
+  joins, the bot leaves and the joiner is promoted to host. `yarn seed` or
+  the `seeder` docker-compose service. `SEED_TOKEN` must match the relay's
+  (default `bomb-blast-local-seed`; override both in deployments).
 - **Host browser** runs the real engine unchanged and streams authoritative
   state. `src/game/net/host.ts` relays bomb blasts (`setOnBombExplode`) and
   broadcasts full state snapshots every `NET_CONFIG.snapshotIntervalMs` (50ms)

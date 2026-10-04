@@ -92,11 +92,14 @@ To always show joinable lobbies, run the seeder alongside the relay:
 yarn seed   # keeps >=3 public lobbies, checking every 4 minutes
 ```
 
-Tune with `SEED_MIN_LOBBIES` and `SEED_INTERVAL_MS` (defaults 3 and 240000).
+Tune with `SEED_MIN_LOBBIES` and `SEED_INTERVAL_MS` (defaults 3 and 240000);
+only open lobbies count, so full or in-game rooms still trigger seeding.
 Seed rooms are hosted by the process under themed names; when a real player
 joins, the bot leaves and the joiner is promoted to host, so a seeded lobby
 becomes a normal room. The `seeder` service in `docker-compose.yml` runs it
-next to the relay automatically.
+next to the relay automatically. `seed:true` is gated by a shared
+`SEED_TOKEN` (same env on relay and seeder; the built-in default covers
+local development — override it in deployments).
 
 The host's browser runs the game engine and streams authoritative state to
 guests; guests send their keyboard input back to the host. Online host
