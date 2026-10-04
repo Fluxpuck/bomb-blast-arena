@@ -171,15 +171,28 @@ function publicLobbies() {
   return lobbies;
 }
 
-/** Answer one `{t:"browse", page, pageSize}` request (0-based page). */
+/**
+ * Answer one `{t:"browse", page, pageSize}` request (0-based page). Both
+ * fields must be finite numbers — anything else (strings, NaN, Infinity)
+ * falls back to the defaults so a malformed request can't produce a
+ * non-finite page offset.
+ */
 function sendLobbyList(ws, msg) {
+  const requestedPageSize =
+    typeof msg.pageSize === "number" && Number.isFinite(msg.pageSize)
+      ? Math.trunc(msg.pageSize)
+      : DEFAULT_LOBBY_PAGE_SIZE;
   const pageSize = Math.min(
-    Math.max(parseInt(msg.pageSize, 10) || DEFAULT_LOBBY_PAGE_SIZE, 1),
+    Math.max(requestedPageSize, 1),
     MAX_LOBBY_PAGE_SIZE
   );
   const all = publicLobbies();
   const pageCount = Math.max(1, Math.ceil(all.length / pageSize));
-  const page = Math.min(Math.max(parseInt(msg.page, 10) || 0, 0), pageCount - 1);
+  const requestedPage =
+    typeof msg.page === "number" && Number.isFinite(msg.page)
+      ? Math.trunc(msg.page)
+      : 0;
+  const page = Math.min(Math.max(requestedPage, 0), pageCount - 1);
   send(ws, {
     t: "lobbyList",
     lobbies: all.slice(page * pageSize, (page + 1) * pageSize),
