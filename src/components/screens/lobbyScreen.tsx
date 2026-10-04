@@ -266,37 +266,9 @@ export function LobbyScreen({
               )}
             </div>
 
-            {/* Host a room — same screen, no extra navigation. */}
-            <div className="flex items-center gap-3">
-              <span className="flex-1 h-px bg-ui-line" />
-              <Label>or host your own</Label>
-              <span className="flex-1 h-px bg-ui-line" />
-            </div>
-
-            <label className="flex items-center gap-3 text-sm cursor-pointer select-none">
-              <Checkbox
-                checked={isPublic}
-                onChange={(e) => setIsPublic(e.target.checked)}
-              />
-              List this lobby publicly
-            </label>
-
-            <Button
-              block
-              variant="purple"
-              size="lg"
-              disabled={!name.trim() || connecting}
-              onClick={() => onCreate(name.trim(), isPublic)}
-            >
-              {connecting ? "Connecting…" : "Create Room"}
-            </Button>
-
-            <div className="flex items-center gap-3">
-              <span className="flex-1 h-px bg-ui-line" />
-              <Label>or join with code</Label>
-              <span className="flex-1 h-px bg-ui-line" />
-            </div>
-
+            {/* Join-by-code and create stay on the server list — one
+                compact row each, no extra navigation. A full or
+                already-started room lands the join as a spectator. */}
             <div className="flex gap-3 items-stretch">
               <TextInput
                 value={joinCode}
@@ -306,14 +278,31 @@ export function LobbyScreen({
                 aria-label="Room code"
                 className="flex-1 min-w-0 w-auto! text-center text-xl! uppercase tracking-[0.3em] font-bold"
               />
-              {/* A full or already-started room lands the join as a
-                  spectator instead of failing — no separate Watch needed. */}
               <Button
                 variant="green"
                 disabled={!name.trim() || joinCode.length !== 4 || connecting}
                 onClick={() => onJoin(joinCode, name.trim())}
               >
                 Join
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none whitespace-nowrap">
+                <Checkbox
+                  checked={isPublic}
+                  onChange={(e) => setIsPublic(e.target.checked)}
+                />
+                Public
+              </label>
+              <Button
+                block
+                variant="purple"
+                size="lg"
+                disabled={!name.trim() || connecting}
+                onClick={() => onCreate(name.trim(), isPublic)}
+              >
+                {connecting ? "Connecting…" : "Create Room"}
               </Button>
             </div>
           </div>
