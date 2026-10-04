@@ -378,11 +378,14 @@ export function LobbyScreen({
   }, []);
   // Adopt a late-arriving myName (Discord auth resolving after the lobby
   // opened) over an empty or still-random nickname — never a typed or
-  // stored one.
+  // stored one. An emptied myName (e.g. leaving a room) keeps the current
+  // nickname instead of clearing it.
   const [prevMyName, setPrevMyName] = useState(myName);
   if (myName !== prevMyName) {
     setPrevMyName(myName);
-    if (!name || name === generatedNameRef.current) setName(myName);
+    if (myName && (!name || name === generatedNameRef.current)) {
+      setName(myName);
+    }
   }
   const [joinCode, setJoinCode] = useState(initialJoinCode);
   const [fillBots, setFillBots] = useState(true);
