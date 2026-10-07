@@ -153,13 +153,20 @@ export function Panel({
   width?: number | null;
   className?: string;
 }) {
+  // A fixed pixel width overflows the viewport on narrow screens — past the
+  // minimum Screen scale the panel stays too wide and its edges get clipped.
+  // Capping the layout width at the viewport lets it shrink instead.
+  const panelWidth =
+    width === null
+      ? undefined
+      : `min(${width}px, calc(100vw - ${SCREEN_PADDING * 2}px))`;
   return (
     <div
       className={cx(
         "m-auto p-7 text-ui-text rounded-[18px] border-2 border-ui-line bg-linear-to-b from-ui-panel-top to-ui-panel-bottom shadow-[0_24px_60px_rgba(0,0,0,.55),inset_0_1px_0_rgba(255,255,255,.07)]",
         className
       )}
-      style={width === null ? undefined : ({ width } as CSSProperties)}
+      style={panelWidth === undefined ? undefined : ({ width: panelWidth } as CSSProperties)}
     >
       {children}
     </div>
@@ -432,4 +439,4 @@ export function LinkButton({
 
 /** Touch d-pad key. */
 export const PAD =
-  "flex items-center justify-center w-16 h-16 text-xl font-bold text-ui-text bg-[rgba(10,17,32,.72)] border-2 border-[rgba(124,196,255,.32)] rounded-xl backdrop-blur-xs transition-[transform,background-color] duration-[60ms] select-none touch-none active:scale-[.93] active:bg-ui-yellow active:text-ui-ink active:border-ui-orange-deep";
+  "flex items-center justify-center w-16 h-16 short:w-12 short:h-12 text-xl short:text-base font-bold text-ui-text bg-[rgba(10,17,32,.72)] border-2 border-[rgba(124,196,255,.32)] rounded-xl backdrop-blur-xs transition-[transform,background-color] duration-[60ms] select-none touch-none active:scale-[.93] active:bg-ui-yellow active:text-ui-ink active:border-ui-orange-deep";

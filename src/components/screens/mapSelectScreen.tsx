@@ -70,7 +70,7 @@ export function MapSelectScreen({ onSelect, onBack }: MapSelectScreenProps) {
       <Panel width={720}>
         <Heading title="SELECT MAP" subtitle="Breakable blocks are placed randomly each game" />
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
           {MAP_PATTERNS.map((pattern) => (
             <Button
               key={pattern.id}

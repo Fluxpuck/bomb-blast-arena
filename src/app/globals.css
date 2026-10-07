@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Short touch viewports (landscape phones): chrome — audio pill, player-HUD
+   stats, touch controls — compacts so it stops overlapping. Touch-only so
+   short desktop windows keep the full chrome. */
+@custom-variant short (@media (max-height: 480px) and (pointer: coarse));
+
 @theme {
   --color-bg: #e8d5b7;
   --color-dark: #4a4238;
