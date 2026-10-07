@@ -37,7 +37,7 @@ export function AudioController({ autoPlay = true }: AudioControllerProps) {
   };
 
   return (
-    <div className={cx(PANEL_GLASS, "px-4 py-2 rounded-full fixed top-2 sm:top-auto sm:bottom-4 left-1/2 transform -translate-x-1/2 portrait:top-auto portrait:bottom-2 portrait:left-auto portrait:right-2 portrait:-translate-x-0 short:top-auto short:bottom-2 short:left-auto short:right-2 short:-translate-x-0 flex items-center gap-3 z-50")}>
+    <div className={cx(PANEL_GLASS, "px-4 py-2 rounded-full fixed top-2 sm:top-auto sm:bottom-4 left-1/2 transform -translate-x-1/2 portrait:top-auto portrait:bottom-2 portrait:left-auto portrait:right-2 portrait:-translate-x-0 short:top-auto short:bottom-2 short:left-auto short:right-24 short:-translate-x-0 flex items-center gap-3 z-50")}>
       <button
         type="button"
         onClick={handleToggleSfx}

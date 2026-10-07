@@ -18,10 +18,12 @@ export function PlayerHUD({ player, corner }: PlayerHUDProps) {
         return "top-2 left-2 sm:top-4 sm:left-4";
       case "top-right":
         return "top-2 right-2 sm:top-4 sm:right-4";
+      // Bottom HUDs lift above the touch controls on short screens — the
+      // d-pad is ~160px tall there (48px pads at bottom-2).
       case "bottom-left":
-        return "bottom-2 left-2 sm:bottom-4 sm:left-4";
+        return "bottom-2 left-2 sm:bottom-4 sm:left-4 short:bottom-[168px]";
       case "bottom-right":
-        return "bottom-2 right-2 sm:bottom-4 sm:right-4";
+        return "bottom-2 right-2 sm:bottom-4 sm:right-4 short:bottom-[168px]";
     }
   };
 
