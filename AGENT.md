@@ -244,6 +244,8 @@ the `frame_id` query param Discord injects into the iframe URL
 | `src/discord/client.ts` | Detection, SDK init, OAuth (`identify` + `rpc.activities.write` + `guilds.members.read`), invite `customId` + `ACTIVITY_JOIN` room-code handling, Discord display name (server nickname → `global_name` → `username`) |
 | `src/discord/presence.ts` | `updatePresence(gameState, ctx)` — maps game state to `setActivity` payloads (party size, elapsed timer, winner, join secret while in a lobby) |
 | `src/app/api/token/route.ts` | OAuth code → access token exchange |
+| `src/discord/linkPreview.ts` | Link-preview copy + `requestOrigin()` + `componentEmbedPayload()` builder |
+| `src/app/component-embed.json/route.ts` | Serves the component-embed JSON the layout's `<link>` points at |
 
 Presence updates fire on `GameState` transitions in `page.tsx` (never
 per-frame — Discord rate-limits `SET_ACTIVITY`). While in a room lobby the
@@ -263,6 +265,27 @@ separate receive-only socket that sends `{ t: "watch", instanceId }`; the
 relay pushes `{ t: "lobbies" }` on every change, and the start + lobby
 screens render one-click "Join <host>'s Lobby" buttons (or "Watch" when the
 match is running or the room is full).
+
+### Link previews (unfurling)
+
+Pasting the game URL in chat unfurls a rich card, styled by Discord's
+link-preview tags plus a component embed
+(https://docs.discord.com/developers/link-previews/overview and
+/component-embeds). The app is self-hostable under arbitrary hosts, so every
+absolute URL is resolved per request from the request origin
+(`requestOrigin()` in `src/discord/linkPreview.ts`) — which also means pages
+render dynamically.
+
+- `src/app/layout.tsx`: `generateMetadata` sets `metadataBase` from the
+  request origin and emits `og:`/`twitter:` (`summary_large_image`) tags
+  using the marketing social banner; the `viewport` export sets
+  `theme-color` (the preview's accent color).
+- The same layout renders `<link rel="discord:component-embed">` — React
+  hoists it into `<head>` — pointing at `/component-embed.json`, a route
+  serving the component payload (Container → Section + Thumbnail, Media
+  Gallery, Text Displays, link-style Buttons only).
+- The standard OG preview remains as fallback for crawlers that don't read
+  component embeds.
 
 ## Controls
 
