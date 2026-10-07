@@ -38,7 +38,7 @@ export function GameHUD({
   const timeColor = getTimeColor();
 
   return (
-    <div className={cx(PANEL_GLASS, "px-3 py-2 rounded-xl fixed top-[7.5rem] sm:top-4 left-1/2 transform -translate-x-1/2 portrait:top-auto portrait:bottom-2 portrait:left-2 portrait:-translate-x-0 z-50 min-w-[120px] sm:min-w-[160px] portrait:min-w-0 text-center")}>
+    <div className={cx(PANEL_GLASS, "px-3 py-2 rounded-xl fixed top-[7.5rem] sm:top-4 short:top-1 left-1/2 transform -translate-x-1/2 portrait:top-auto portrait:bottom-2 portrait:left-2 portrait:-translate-x-0 z-50 min-w-[120px] sm:min-w-[160px] portrait:min-w-0 text-center")}>
       {/* Time Display (label and bar hidden in portrait — time only) */}
       <div className="mb-1 sm:mb-2 portrait:mb-0">
         <Label className="block text-[9px]! sm:text-[10px]! mb-0.5 portrait:hidden">

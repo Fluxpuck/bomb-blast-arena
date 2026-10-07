@@ -65,7 +65,7 @@ export function TouchControls({ onMove, onBomb }: TouchControlsProps) {
   );
 
   return (
-    <div className="fixed inset-x-0 bottom-24 z-50 pointer-events-none">
+    <div className="fixed inset-x-0 bottom-24 short:bottom-2 z-50 pointer-events-none">
       <div className="flex justify-between items-center px-4">
         {/* D-pad */}
         <div className="grid grid-cols-3 gap-1 pointer-events-auto">

@@ -105,7 +105,7 @@ const EXTRA_MAP_OPTIONS = [
 ] as const;
 
 // Row/list column metrics from the lobby design: map thumb, name, status,
-// players, ping, action — desktop only, mobile rows stack instead.
+// players, ping, action — desktop only (>= lg), compact rows stack below it.
 const ROOM_GRID =
   "grid grid-cols-[52px_minmax(0,1fr)_92px_104px_52px_96px] gap-3.5 items-center";
 
@@ -682,12 +682,12 @@ export function LobbyScreen({
               // bottom-centre on desktop instead of overlapping the footer.
               // The panel never scrolls itself — the room list does. On
               // mobile the sheet still needs whole-panel scrolling.
-              "w-[min(1100px,calc(100vw-2rem))] max-h-[calc(100dvh-8rem)] flex flex-col max-sm:overflow-y-auto"
+              "w-[min(1100px,calc(100vw-2rem))] max-h-[calc(100dvh-8rem)] flex flex-col max-lg:overflow-y-auto"
         }
       >
-        {/* ============ Lobby browser — desktop (>= sm) ============ */}
+        {/* ============ Lobby browser — desktop (>= lg) ============ */}
         {!inRoom && view === "browse" && (
-          <div className="hidden sm:flex flex-col gap-5 flex-1 min-h-0">
+          <div className="hidden lg:flex flex-col gap-5 flex-1 min-h-0">
             {/* Header: title + subtitle left, nickname chip right. */}
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -863,9 +863,9 @@ export function LobbyScreen({
           </div>
         )}
 
-        {/* ============ Lobby browser — mobile (< sm) ============ */}
+        {/* ============ Lobby browser — compact (< lg) ============ */}
         {!inRoom && view === "browse" && (
-          <div className="sm:hidden flex flex-col gap-3.5 -m-3 p-4 pt-8 min-h-[calc(100dvh-2rem)]">
+          <div className="lg:hidden flex flex-col gap-3.5 -m-3 p-4 pt-8 min-h-[calc(100dvh-2rem)]">
             {/* Top bar: back, title, refresh. */}
             <div className="flex items-center justify-between">
               <LinkButton onClick={onBack} aria-label="Back to menu">

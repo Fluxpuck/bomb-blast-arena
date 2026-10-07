@@ -63,10 +63,10 @@ export function PlayerHUD({ player, corner }: PlayerHUDProps) {
           </div>
         </div>
 
-        {/* Player stats (hidden on small screens and in portrait to keep
-            HUDs compact) */}
+        {/* Player stats (hidden on small, portrait, and short screens to
+            keep HUDs compact and clear of the touch controls) */}
         {isAlive ? (
-          <div className="hidden sm:block portrait:hidden">
+          <div className="hidden sm:block portrait:hidden short:hidden">
             <div className={cx(ROW, "py-0.5")}>
               <span>Score</span>
               <span>{player.score}</span>

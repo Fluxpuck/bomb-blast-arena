@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Short viewports (landscape phones, Discord tiles): chrome — audio pill,
+   player-HUD stats, touch controls — compacts so it stops overlapping. */
+@custom-variant short (@media (max-height: 480px));
+
 @theme {
   --color-bg: #e8d5b7;
   --color-dark: #4a4238;
