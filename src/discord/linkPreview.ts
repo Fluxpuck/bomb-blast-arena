@@ -36,9 +36,24 @@ const ICON_IMAGE = "/marketing/bomb-blast-arena-icon-180.png";
 export const COMPONENT_EMBED_PATH = "/component-embed.json";
 
 /**
- * The public origin the current request was served on. Prefers the
- * forwarded headers tunnels and proxies set, falling back to `http` on
- * loopback and `https` on any other host.
+ * The public origin links and payloads are built on. A configured
+ * `SITE_URL` wins: it pins HTTPS in deployments whose proxy doesn't
+ * forward a proto, and keeps spoofed Host/X-Forwarded-* headers out of
+ * the emitted URLs. Otherwise the origin is derived per request.
+ */
+export function siteOrigin(requestHeaders: {
+  get(name: string): string | null;
+}): string {
+  const configured = process.env.SITE_URL?.trim();
+  if (configured) return new URL(configured).origin;
+  return requestOrigin(requestHeaders);
+}
+
+/**
+ * The public origin the current request was served on. The host comes
+ * from the forwarded headers tunnels and proxies set (falling back to
+ * the plain Host header); the protocol is `http` on loopback and
+ * `https` anywhere else — see the proto note below.
  */
 export function requestOrigin(requestHeaders: {
   get(name: string): string | null;
@@ -52,12 +67,19 @@ export function requestOrigin(requestHeaders: {
   )
     .split(",")[0]
     .trim();
-  const isLoopback = host.startsWith("localhost") || host.startsWith("127.");
-  const proto = (
-    requestHeaders.get("x-forwarded-proto") ?? (isLoopback ? "http" : "https")
-  )
+  const forwardedProto = (requestHeaders.get("x-forwarded-proto") ?? "")
     .split(",")[0]
     .trim();
+  const isLoopback =
+    host.startsWith("localhost") ||
+    host.startsWith("127.") ||
+    host.startsWith("[::1]");
+  // Next.js synthesizes a missing x-forwarded-proto from its own backend
+  // connection, so "http" here is ambiguous: it may be the synthesized
+  // value behind a TLS-terminating proxy that didn't forward the proto.
+  // Only an explicit "https" is trusted; public hosts default to https —
+  // the only scheme Discord's crawler can reach in a normal deployment.
+  const proto = forwardedProto === "https" || !isLoopback ? "https" : "http";
   return `${proto}://${host}`;
 }
 

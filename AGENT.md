@@ -273,8 +273,8 @@ link-preview tags plus a component embed
 (https://docs.discord.com/developers/link-previews/overview and
 /component-embeds). The app is self-hostable under arbitrary hosts, so every
 absolute URL is resolved per request from the request origin
-(`requestOrigin()` in `src/discord/linkPreview.ts`) — which also means pages
-render dynamically.
+(`requestOrigin()` in `src/discord/linkPreview.ts`; `SITE_URL` pins a
+canonical origin when set) — which also means pages render dynamically.
 
 - `src/app/layout.tsx`: `generateMetadata` sets `metadataBase` from the
   request origin and emits `og:`/`twitter:` (`summary_large_image`) tags

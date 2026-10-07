@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import localFont from "next/font/local";
 import {
   COMPONENT_EMBED_PATH,
-  requestOrigin,
+  siteOrigin,
   SITE_DESCRIPTION,
   SITE_NAME,
   SITE_TITLE,
@@ -36,7 +36,7 @@ const jetbrainsMono = localFont({
 // headers() here opts every page into dynamic rendering.
 export async function generateMetadata(): Promise<Metadata> {
   return {
-    metadataBase: new URL(requestOrigin(await headers())),
+    metadataBase: new URL(siteOrigin(await headers())),
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
     openGraph: {
@@ -76,7 +76,7 @@ export default async function RootLayout({
   // the metadata API can't emit — React hoists <link> elements rendered
   // anywhere into <head>, so it lives here in the layout. Its linked JSON
   // must be absolute on the page's own host, hence the request origin.
-  const componentEmbedUrl = `${requestOrigin(await headers())}${COMPONENT_EMBED_PATH}`;
+  const componentEmbedUrl = `${siteOrigin(await headers())}${COMPONENT_EMBED_PATH}`;
   return (
     <html lang="en">
       <body

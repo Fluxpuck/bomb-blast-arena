@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
-import { componentEmbedPayload, requestOrigin } from "../../discord/linkPreview";
+import { componentEmbedPayload, siteOrigin } from "../../discord/linkPreview";
 
 // =========================
 // Discord component-embed JSON
@@ -10,5 +10,5 @@ import { componentEmbedPayload, requestOrigin } from "../../discord/linkPreview"
 // per-request with media and button URLs absolute on the request origin.
 // Dynamic by nature: headers() opts the route into per-request rendering.
 export async function GET() {
-  return NextResponse.json(componentEmbedPayload(requestOrigin(await headers())));
+  return NextResponse.json(componentEmbedPayload(siteOrigin(await headers())));
 }
