@@ -125,6 +125,9 @@ export default function Home() {
   const [discordReady, setDiscordReady] = useState(false);
   // Wall-clock match start for the presence elapsed timer.
   const matchStartMsRef = useRef(0);
+  // Set when the engine is paused: the PLAYING effect reads it to skip the
+  // fresh-match setup on resume (the engine stays alive while paused).
+  const pausedEngineRef = useRef(false);
   // Authenticated Discord display name — the default lobby nickname and the
   // identity used when auto-joining a room from a Discord invite/Join.
   const discordNameRef = useRef<string | null>(null);
@@ -340,6 +343,7 @@ export default function Home() {
       if (gameMode === "online") return; // online games can't pause
 
       if (gameState === GameState.PLAYING) {
+        pausedEngineRef.current = true;
         pauseGame();
         setGameState(GameState.PAUSED);
       } else if (gameState === GameState.PAUSED) {
@@ -357,7 +361,15 @@ export default function Home() {
   // =========================
   useEffect(() => {
     if (gameState !== GameState.PLAYING) return;
-    matchStartMsRef.current = Date.now();
+
+    // Resuming a paused match: the cleanup below keeps the engine alive
+    // while paused, so skip the fresh-match setup — re-running
+    // initializePlayers would orphan the characters the tracker references.
+    const resumingFromPause = pausedEngineRef.current;
+    pausedEngineRef.current = false;
+    if (!resumingFromPause) {
+      matchStartMsRef.current = Date.now();
+    }
 
     if (gameMode === "online" && isGuest) {
       // Back-date the presence timer by the host's clock so a mid-game
@@ -375,7 +387,9 @@ export default function Home() {
     }
 
     // Host or solo/local: initialize players, start the engine, wire callbacks.
-    initializePlayers();
+    if (!resumingFromPause) {
+      initializePlayers();
+    }
 
     setOnPlayerDead((winnerId) => {
       setWinner(winnerId ? tracker.getPlayer(winnerId)?.getStats() : undefined);
@@ -401,11 +415,13 @@ export default function Home() {
       }
     });
 
-    startEngine();
+    if (!resumingFromPause) {
+      startEngine();
 
-    // For online host: start relaying snapshots + blasts.
-    if (gameMode === "online" && !isGuest) {
-      startHosting(rosterRef.current);
+      // For online host: start relaying snapshots + blasts.
+      if (gameMode === "online" && !isGuest) {
+        startHosting(rosterRef.current);
+      }
     }
 
     const timeInterval = setInterval(() => {
@@ -413,13 +429,17 @@ export default function Home() {
     }, 100);
 
     return () => {
-      stopEngine();
-      if (gameMode === "online" && !isGuest) {
-        stopHosting();
+      // Stepping into PAUSED leaves the engine alive so resumeGame()
+      // continues the same match; every other exit tears it down.
+      if (getGameState() !== GameState.PAUSED) {
+        stopEngine();
+        if (gameMode === "online" && !isGuest) {
+          stopHosting();
+        }
       }
       clearInterval(timeInterval);
     };
-     
+
   }, [gameState, gameMode, isGuest]);
 
   // =========================
@@ -685,6 +705,12 @@ export default function Home() {
   // Restart / return to menu
   // =========================
   const handleGameRestart = () => {
+    // Leaving a paused match for the menu: the PLAYING cleanup skips the
+    // teardown while paused, so stop the still-running engine here.
+    if (getGameState() === GameState.PAUSED) {
+      pausedEngineRef.current = false;
+      stopEngine();
+    }
     if (gameMode === "online") {
       // Leave the room and return to the start screen.
       roomClient.reset();
