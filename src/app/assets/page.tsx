@@ -159,9 +159,8 @@ const TITLE_TILES: TileKind[] = [
 ];
 
 const MODE_BUTTONS = [
-  { text: "2 Players", bg: "#60a5fa", border: "#1e3a8a", color: "#fff" },
-  { text: "3 Players", bg: "#f59e0b", border: "#b45309", color: "#fff" },
-  { text: "4 Players", bg: "#ef4444", border: "#991b1b", color: "#fff" },
+  { text: "Solo", bg: "#60a5fa", border: "#1e3a8a", color: "#fff" },
+  { text: "Multiplayer", bg: "#a78bfa", border: "#5b21b6", color: "#fff" },
 ];
 
 const modeButton: CSSProperties = {
@@ -243,10 +242,36 @@ const PLAY_BOARD: TileKind[] = (() => {
   return board;
 })();
 
-const LOBBY_PLAYERS = [
-  { name: "Fluxpuck", color: "#60a5fa", isHost: true, slot: 1 },
-  { name: "Nova", color: "#ef4444", isHost: false, slot: 2 },
-  { name: "Pixel", color: "#4ade80", isHost: false, slot: 3 },
+// 05 is the multiplayer host lobby; 05a the solo lobby, which reuses the
+// same in-room panel without the room code, spectators or Leave Room.
+const LOBBY_VARIANTS = [
+  {
+    solo: false,
+    id: "asset-lobby-host",
+    name: "bomb-blast-arena-lobby-host",
+    title: "05 · LOBBY · host view · lobbyScreen.tsx",
+    players: [
+      { name: "Fluxpuck", color: "#60a5fa", isHost: true, bot: false, slot: 1 },
+      { name: "Nova", color: "#ef4444", isHost: false, bot: false, slot: 2 },
+      { name: "Computer 1", color: "#4ade80", isHost: false, bot: true, slot: 3 },
+    ],
+    botOptions: [0, 1, 2],
+    bots: 1,
+  },
+  {
+    solo: true,
+    id: "asset-lobby-solo",
+    name: "bomb-blast-arena-lobby-solo",
+    title: "05a · SOLO LOBBY · bot picker · lobbyScreen.tsx",
+    players: [
+      { name: "Player 1", color: "#60a5fa", isHost: false, bot: false, slot: 1 },
+      { name: "Computer 1", color: "#ef4444", isHost: false, bot: true, slot: 2 },
+      { name: "Computer 2", color: "#4ade80", isHost: false, bot: true, slot: 3 },
+      { name: "Computer 3", color: "#a78bfa", isHost: false, bot: true, slot: 4 },
+    ],
+    botOptions: [1, 2, 3],
+    bots: 3,
+  },
 ];
 
 type HudPlayer = {
@@ -786,17 +811,6 @@ export default function MarketingAssets() {
                 </div>
                 <div
                   style={{
-                    ...modeButton,
-                    width: "100%",
-                    background: "#a78bfa",
-                    border: "4px solid #5b21b6",
-                    color: "#fff",
-                  }}
-                >
-                  Multiplayer (Online)
-                </div>
-                <div
-                  style={{
                     fontFamily: PIXEL,
                     fontWeight: 700,
                     fontSize: 21,
@@ -955,7 +969,7 @@ export default function MarketingAssets() {
               <p style={{ margin: 0, fontSize: 15, color: "#dbe7f7" }}>Select game mode to start playing.</p>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", marginTop: 4 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   {MODE_BUTTONS.map((b) => (
                     <div
                       key={b.text}
@@ -979,25 +993,6 @@ export default function MarketingAssets() {
                       {b.text}
                     </div>
                   ))}
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "11px 12px",
-                    borderRadius: 10,
-                    fontFamily: PIXEL,
-                    fontWeight: 700,
-                    fontSize: 16,
-                    letterSpacing: ".05em",
-                    background: "#a78bfa",
-                    border: "3px solid #5b21b6",
-                    borderBottomWidth: 8,
-                    color: "#fff",
-                  }}
-                >
-                  Multiplayer (Online)
                 </div>
                 <p
                   style={{
@@ -1146,7 +1141,7 @@ export default function MarketingAssets() {
               <p style={{ margin: 0, fontSize: 18, color: "#dbe7f7" }}>Select game mode to start playing.</p>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 12, width: 520, marginTop: 6 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   {MODE_BUTTONS.map((b) => (
                     <div
                       key={b.text}
@@ -1170,25 +1165,6 @@ export default function MarketingAssets() {
                       {b.text}
                     </div>
                   ))}
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "13px 18px",
-                    borderRadius: 10,
-                    fontFamily: PIXEL,
-                    fontWeight: 700,
-                    fontSize: 20,
-                    letterSpacing: ".05em",
-                    background: "#a78bfa",
-                    border: "3px solid #5b21b6",
-                    borderBottomWidth: 9,
-                    color: "#fff",
-                  }}
-                >
-                  Multiplayer (Online)
                 </div>
                 <p
                   style={{
@@ -1318,14 +1294,16 @@ export default function MarketingAssets() {
           </FitWidth>
         </Block>
 
-        {/* 05 LOBBY HOST */}
+        {/* 05 LOBBY HOST + 05a SOLO LOBBY */}
+        {LOBBY_VARIANTS.map((v) => (
         <Block
-          title="05 · LOBBY · host view · lobbyScreen.tsx"
-          assets={[{ id: "asset-lobby-host", name: "bomb-blast-arena-lobby-host", label: "1280×720" }]}
+          key={v.id}
+          title={v.title}
+          assets={[{ id: v.id, name: v.name, label: "1280×720" }]}
         >
           <FitWidth w={1280} h={720}>
           <div
-            id="asset-lobby-host"
+            id={v.id}
             style={{ width: 1280, height: 720, flex: "0 0 auto", position: "relative", overflow: "hidden", borderRadius: 14, background: "#0b1526" }}
           >
             <div style={{ position: "absolute", inset: 0, backgroundImage: "url(/image/background.jpg)", backgroundSize: "cover", backgroundPosition: "center" }} />
@@ -1344,11 +1322,14 @@ export default function MarketingAssets() {
               >
                 <div style={{ marginBottom: 24, textAlign: "center" }}>
                   <div style={{ fontFamily: BUNGEE, fontSize: 34, lineHeight: 0.95, letterSpacing: ".01em", color: "#5fd7f2", textShadow: "0 3px 0 #0f5f73,0 0 22px rgba(95,215,242,.4)" }}>
-                    MULTIPLAYER
+                    {v.solo ? "SOLO" : "MULTIPLAYER"}
                   </div>
-                  <p style={{ margin: "10px 0 0", fontSize: 14, color: "#8fa6c9" }}>Room lobby</p>
+                  <p style={{ margin: "10px 0 0", fontSize: 14, color: "#8fa6c9" }}>
+                    {v.solo ? "Choose how many bots to play against" : "Room lobby"}
+                  </p>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                  {!v.solo && (
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
                     <span style={kicker}>Room Code</span>
                     <div style={{ display: "inline-flex", alignItems: "center", gap: 12, padding: "8px 20px", background: "#0a1120", border: "2px solid rgba(124,196,255,.24)", borderRadius: 10 }}>
@@ -1356,24 +1337,27 @@ export default function MarketingAssets() {
                       <span style={kicker}>Copy</span>
                     </div>
                   </div>
+                  )}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "start" }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        <span style={kicker}>Players (3/4)</span>
-                        {LOBBY_PLAYERS.map((p) => (
+                        <span style={kicker}>Players ({v.players.length}/4)</span>
+                        {v.players.map((p) => (
                           <div
                             key={p.name}
-                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "8px 12px", borderRadius: 12, background: "rgba(255,255,255,.04)", border: "1px solid rgba(124,196,255,.14)" }}
+                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "8px 12px", borderRadius: 12, background: "rgba(255,255,255,.04)", border: `1px ${p.bot ? "dashed" : "solid"} rgba(124,196,255,.14)` }}
                           >
                             <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>
                               <span style={{ width: 12, height: 12, borderRadius: "50%", boxShadow: "0 0 0 2px rgba(0,0,0,.35)", background: p.color }} />
                               {p.name}
                               {p.isHost && <span style={{ ...kicker, color: "#ffce3d" }}>Host</span>}
+                              {p.bot && <span style={kicker}>Bot</span>}
                             </span>
                             <span style={kicker}>Slot {p.slot}</span>
                           </div>
                         ))}
                       </div>
+                      {!v.solo && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                         <span style={kicker}>Spectators (1/8)</span>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "8px 12px", borderRadius: 12, background: "rgba(255,255,255,.04)", border: "1px solid rgba(124,196,255,.14)" }}>
@@ -1384,11 +1368,26 @@ export default function MarketingAssets() {
                           <span style={kicker}>Watching</span>
                         </div>
                       </div>
+                      )}
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 14 }}>
-                        <span style={{ width: 18, height: 18, borderRadius: 4, background: "#ffce3d", display: "flex", alignItems: "center", justifyContent: "center", color: "#0a1120", fontSize: 13, fontWeight: 700 }}>✓</span>
-                        Fill empty slots with bots
+                      {/* Bots picker (Segmented in ui.tsx): 0..free slots in
+                          multiplayer, 1..3 in solo. */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        <span style={kicker}>Bots</span>
+                        <div style={{ display: "flex", padding: 4, borderRadius: 10, background: "#0a1120", border: "1px solid rgba(124,196,255,.24)" }}>
+                          {v.botOptions.map((n) => (
+                            <span
+                              key={n}
+                              style={{
+                                ...kicker, flex: 1, minHeight: 36, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8,
+                                ...(n === v.bots ? { background: "#5fd7f2", color: "#0a1120" } : null),
+                              }}
+                            >
+                              {n}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                       <div
                         style={{
@@ -1400,6 +1399,7 @@ export default function MarketingAssets() {
                       >
                         Start Game
                       </div>
+                      {!v.solo && (
                       <div
                         style={{
                           display: "flex", alignItems: "center", justifyContent: "center", padding: "6px 18px",
@@ -1410,6 +1410,7 @@ export default function MarketingAssets() {
                       >
                         Leave Room
                       </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1421,6 +1422,7 @@ export default function MarketingAssets() {
           </div>
           </FitWidth>
         </Block>
+        ))}
 
         {/* 06 PLAYING HUD */}
         <Block

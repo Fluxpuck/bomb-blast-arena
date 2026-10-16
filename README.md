@@ -31,8 +31,12 @@ friends through rooms, invite links, or a Discord Activity.
   <img src="public/marketing/bomb-blast-arena-title-1920x1080.png" alt="Bomb Blast Arena title screen" width="600" />
 </div>
 
-Pick a mode — **2–4 Players** (you versus AI bots) or **Multiplayer
-(Online)** — and outlast everyone else in the arena.
+Pick a mode and outlast everyone else in the arena:
+
+- **Solo** opens your own private lobby (no server needed). Choose 1–3 bots,
+  pick a map, and play. You can pause with `Esc`.
+- **Multiplayer** opens the online lobby browser. Join a room or host your
+  own, and add bots to fill the free slots — or start alone against bots.
 
 | Action        | Keys                    |
 | ------------- | ----------------------- |
@@ -75,14 +79,14 @@ For production hosting, point clients at your server with the
 
 To play online:
 
-1. Click **Multiplayer (Online)** on the start screen.
-2. Enter a nickname and **Create Room** — you'll get a 4-letter code.
-   Uncheck **List this lobby publicly** to keep it code-only; public rooms
-   appear in the **public servers** list (sorted by host latency) for anyone
-   to join.
+1. Click **Multiplayer** on the start screen.
+2. Click **+ Create Lobby**, then **Create Room** — you'll get a 4-letter
+   code. Pick **Private** to keep it code-only; public rooms appear in the
+   room list (sorted by host latency) for anyone to join.
 3. Share the code. Other players enter it and click **Join**.
-4. The host can optionally fill empty slots with bots, then clicks
-   **Start Game**.
+4. The host picks how many **Bots** fill the free slots (0 up to the free
+   slots), then clicks **Start Game**. With at least one bot the host can
+   start alone.
 
 ### Lobby seeder
 

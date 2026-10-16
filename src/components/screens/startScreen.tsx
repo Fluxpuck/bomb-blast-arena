@@ -5,14 +5,13 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { GameMode } from "../../types/game";
 import { InstanceLobby } from "../../types/multiplayer";
 import { Bomb, Bomber, Tile, type TileKind } from "../sprites";
 import { isTouchDevice } from "../touchControls";
-import { Button, cx, type ButtonVariant } from "../ui";
+import { Button, cx } from "../ui";
 
 interface StartScreenProps {
-  onStart: (mode: GameMode) => void;
+  onSolo: () => void;
   onMultiplayer: () => void;
   /** Lobbies hosted in the same Discord Activity (empty outside Discord). */
   lobbies?: InstanceLobby[];
@@ -21,16 +20,6 @@ interface StartScreenProps {
 
 const BUNGEE = "var(--font-bungee), 'Bungee', sans-serif";
 const PIXEL = "'Courier New', Courier, monospace";
-
-// Button colour per game mode
-const modeVariant: Record<GameMode, ButtonVariant> = {
-  "2 players": "blue",
-  "3 players": "orange",
-  "4 players": "red",
-  online: "purple",
-};
-
-const gameModes: GameMode[] = ["2 players", "3 players", "4 players"];
 
 const BLUE = { accent: "#60a5fa", dark: "#1e3a8a", light: "#cfe8ff" };
 const RED = { accent: "#ef4444", dark: "#991b1b", light: "#ffd3cf" };
@@ -113,7 +102,7 @@ function Abs({ style, children }: { style: CSSProperties; children: ReactNode })
 }
 
 export function StartScreen({
-  onStart,
+  onSolo,
   onMultiplayer,
   lobbies = [],
   onJoinLobby,
@@ -292,20 +281,25 @@ export function StartScreen({
             style={{ gap: mobilePortrait ? 8 : Math.max(8, 12 * u), marginTop: 4, width: "min(520px, 92vw)", maxWidth: 520 }}
           >
             <div
-              className="grid grid-cols-3 w-full"
+              className="grid grid-cols-2 w-full"
               style={{ gap: mobilePortrait ? 8 : Math.max(8, 14 * u) }}
             >
-              {gameModes.map((mode) => (
-                <Button
-                  key={mode}
-                  variant={modeVariant[mode]}
-                  size={portrait && !mobilePortrait ? "lg" : undefined}
-                  style={mobilePortrait ? TOUCH_BUTTON_STYLE : portrait ? undefined : buttonSize}
-                  onClick={() => onStart(mode)}
-                >
-                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                </Button>
-              ))}
+              <Button
+                variant="blue"
+                size={portrait && !mobilePortrait ? "lg" : undefined}
+                style={mobilePortrait ? TOUCH_BUTTON_STYLE : portrait ? undefined : buttonSize}
+                onClick={onSolo}
+              >
+                Solo
+              </Button>
+              <Button
+                variant="purple"
+                size={portrait && !mobilePortrait ? "lg" : undefined}
+                style={mobilePortrait ? TOUCH_BUTTON_STYLE : portrait ? undefined : buttonSize}
+                onClick={onMultiplayer}
+              >
+                Multiplayer
+              </Button>
             </div>
             {/* One-click joins for lobbies in the same Discord Activity. */}
             {onJoinLobby &&
@@ -321,15 +315,6 @@ export function StartScreen({
                   {lobbyButtonLabel(lobby)}
                 </Button>
               ))}
-            <Button
-              block
-              variant={modeVariant.online}
-              size={portrait && !mobilePortrait ? "lg" : undefined}
-              style={mobilePortrait ? TOUCH_BUTTON_STYLE : portrait ? undefined : buttonSize}
-              onClick={onMultiplayer}
-            >
-              Multiplayer (Online)
-            </Button>
             <p
               className="text-center px-2"
               style={{

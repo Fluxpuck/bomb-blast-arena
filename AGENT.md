@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repository.
 
 ## Project Overview
 
-**Bomb Blast Arena** (lo-fi-bomberman) is a browser-based bombing game built with Next.js 16 (App Router), TypeScript, and Tailwind CSS. It supports 1-4 players (1 human + up to 3 AI opponents) with bomb placement, destructible barrels, power-ups, and a timed game mode.
+**Bomb Blast Arena** (lo-fi-bomberman) is a browser-based bombing game built with Next.js 16 (App Router), TypeScript, and Tailwind CSS. It has a **Solo** mode (1 human + 1–3 AI opponents, picked in a local solo lobby) and an online **Multiplayer** mode (up to 4 humans, with the host adding bots to free slots) with bomb placement, destructible barrels, power-ups, and a timed game mode.
 
 The game loop and rendering are **imperative DOM manipulation** driven by `requestAnimationFrame`, not React state. React is used only for the surrounding UI (screens, HUDs, audio controls). The game grid is a real DOM element built with `document.createElement`.
 
@@ -70,7 +70,7 @@ public/                Static assets (images, music, soundFX)
 | `src/game/hooks/tracker.ts` | `GameTracker` + `PlayerTracker` singletons — stats, scores, kills, time tracking, explosion damage application |
 | `src/game/hooks/sound.ts` | `playSound`/`stopSound` — cached `HTMLAudioElement` playback from `public/soundFX/` |
 | `src/types/game.ts` | Shared types: `Position`, `GridPosition`, `Direction` + `DIRECTION_DELTAS`, `GameState`, `GameMode` |
-| `src/app/page.tsx` | Root page — manages `GameState` (START/PLAYING/PAUSED/GAME_OVER/WIN), wires engine callbacks, renders screens |
+| `src/app/page.tsx` | Root page — manages `GameState` (START/LOBBY/MAP_SELECT/PLAYING/PAUSED/GAME_OVER/WIN), wires engine callbacks, renders screens |
 | `src/app/game.tsx` | Mounts the grid DOM into React, runs the character render loop |
 
 ### Singletons
@@ -82,7 +82,9 @@ Two singletons manage global game state (both use the private-constructor + `get
 
 ### Game state flow
 
-`GameState` enum (`src/types/game.ts`): `START` → `PLAYING` → `PAUSED` ↔ `PLAYING` → `GAME_OVER` | `WIN` → `START`
+`GameState` enum (`src/types/game.ts`): `START` → `LOBBY` → `MAP_SELECT` → `PLAYING` → `PAUSED` ↔ `PLAYING` → `GAME_OVER` | `WIN` → `START`
+
+The start menu has two modes (`GameMode` is `"solo" | "online"`). **Solo** skips the lobby browser: it opens the lobby screen as a local solo lobby (`soloLobby` in `page.tsx`) where the player picks 1–3 bots, then the map, and the match runs locally via `setDesiredPlayersCount`. **Multiplayer** opens the online lobby browser; a host's room skips `MAP_SELECT` when the room declared a map.
 
 The engine exposes callback setters (`setOnPlayerDead`, `setOnTimeOver`, `setOnWin`) that the React layer wires up in `page.tsx`.
 
@@ -179,6 +181,9 @@ run headless on the server or in lockstep. Instead:
 - **Engine input** is per-player (`inputByPlayer` map in `engine.ts`): the
   keyboard writes to the local player's entry; `setRemoteInput` applies guest
   input. `setRoster` declares which slots are local/remote/computer.
+- Bots are host-only: the host's bot picker (`lobbyBots` in `page.tsx`) puts
+  `computer` roster entries in the free slots (`freeSlots`) at start. Guests
+  never see bots in the lobby — the relay doesn't know about them.
 - Pause is disabled in online games (`pauseGame` no-ops when `hasRemotePlayers`).
 - Once the host calls `lockRoom`, joins land as spectators and `setRole` is
   rejected. Host disconnect closes the room and guests get `hostLeft`.
@@ -198,7 +203,7 @@ run headless on the server or in lockstep. Instead:
 | `src/hooks/usePublicLobbies.ts` | Paged, auto-refreshing public lobby list state for the lobby screen |
 | `src/game/net/host.ts` | Host: snapshot broadcast, blast relay, guest input routing |
 | `src/game/net/guest.ts` | Guest: grid rebuild, snapshot apply, keyboard→host, sounds |
-| `src/components/screens/lobbyScreen.tsx` | Create/join room UI, public/private toggle, public server list, roster, player/spectator role switching, host start controls |
+| `src/components/screens/lobbyScreen.tsx` | Create/join room UI, public/private toggle, public server list, roster, player/spectator role switching, host start controls and bot picker. With `solo` it renders the local solo lobby (no room, no code) |
 
 ### Smoke test
 

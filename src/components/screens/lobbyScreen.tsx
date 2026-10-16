@@ -11,7 +11,6 @@ import {
 } from "../../types/multiplayer";
 import {
   Button,
-  Checkbox,
   cx,
   Dot,
   ErrorText,
@@ -52,8 +51,14 @@ interface LobbyScreenProps {
   /** Switch between player and spectator while in the room lobby. */
   onSwitchRole: (role: RoomRole) => void;
   onLeave: () => void;
-  onStart: (fillBots: boolean) => void;
+  /** Bots the host picked; kept by the parent so it survives remounts. */
+  bots: number;
+  onBotsChange: (bots: number) => void;
+  /** Start with this many bots in the free slots. */
+  onStart: (bots: number) => void;
   onBack: () => void;
+  /** Local solo lobby: no relay room, no code, just the bot picker. */
+  solo?: boolean;
   /** The room's declared map (null while browsing or when undeclared). */
   roomMapId?: string | null;
 }
@@ -62,9 +67,15 @@ interface LobbyScreenProps {
 const SLOT_COLORS = ["#60a5fa", "#ef4444", "#4ade80", "#a78bfa"];
 const EMPTY_SLOT_COLOR = "#1e2b45";
 
+const MAX_SLOTS = 4;
 const MAX_ROOM_NAME_LENGTH = 24;
 const CODE_LENGTH = 4;
 const NICKNAME_MAX_LENGTH = 16;
+
+/** Slots no human holds, lowest first — where the host's bots go. */
+export function freeSlots(players: RoomPlayer[]): number[] {
+  return [0, 1, 2, 3].filter((slot) => !players.some((p) => p.slot === slot));
+}
 
 // Nicknames persist between visits so returning players keep their identity.
 const NICKNAME_STORAGE_KEY = "bomb-blast-arena.nickname";
@@ -407,9 +418,12 @@ export function LobbyScreen({
   onJoin,
   onSwitchRole,
   onLeave,
+  bots,
+  onBotsChange,
   onStart,
   onBack,
   roomMapId = null,
+  solo = false,
 }: LobbyScreenProps) {
   const [name, setName] = useState(myName);
   // Filled once on mount when no name was provided: the stored nickname,
@@ -438,7 +452,6 @@ export function LobbyScreen({
     }
   }
   const [joinCode, setJoinCode] = useState(initialJoinCode);
-  const [fillBots, setFillBots] = useState(true);
   // Rooms join the public server list unless the creator opts out.
   const [isPublic, setIsPublic] = useState(true);
   const [roomName, setRoomName] = useState("");
@@ -459,16 +472,22 @@ export function LobbyScreen({
     setPrevJoinCode(initialJoinCode);
     if (initialJoinCode) setJoinCode(initialJoinCode);
   }
+  const inRoom = roomCode !== null || solo;
   // Fetching stops inside a room — the list is irrelevant there.
-  const serverList = usePublicLobbies(roomCode === null);
+  const serverList = usePublicLobbies(!inRoom);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const codeRef = useRef<HTMLSpanElement>(null);
 
-  const inRoom = roomCode !== null;
-  // Spectators count as participants so a host can start a match for an
-  // audience (e.g. host + bots) without a second player.
-  const participantCount = players.length + spectators.length;
+  // Bots only exist on the host, in the slots no human holds. Solo always
+  // has at least one, so there is someone to beat.
+  const maxBots = MAX_SLOTS - players.length;
+  const minBots = solo ? 1 : 0;
+  const botCount = isHost ? Math.max(minBots, Math.min(bots, maxBots)) : 0;
+  const botSlots = freeSlots(players).slice(0, botCount);
+  // Spectators and bots count as participants, so a host can start a
+  // match against bots alone or for an audience.
+  const participantCount = players.length + spectators.length + botCount;
   const canStart = isHost && participantCount >= 2;
 
   const nameIsSet = name.trim().length > 0;
@@ -477,7 +496,7 @@ export function LobbyScreen({
   // Esc leaves the browser — in the create menu it steps back to browse
   // first; in-room Esc stays free for other uses.
   useEffect(() => {
-    if (inRoom) return;
+    if (inRoom && !solo) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (view === "create") setView("browse");
@@ -485,7 +504,7 @@ export function LobbyScreen({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [inRoom, view, onBack]);
+  }, [inRoom, solo, view, onBack]);
 
   // Re-render once a second so "Updated Ns ago" ticks between refreshes.
   // Date.now() can't be read during render (react-hooks/purity), so the
@@ -1010,7 +1029,14 @@ export function LobbyScreen({
         {/* ============ In-room view ============ */}
         {inRoom && (
           <div className="flex flex-col gap-5">
-            {/* Room code display */}
+            {/* Solo has no room to share — a title instead of the code. */}
+            {solo ? (
+              <Heading
+                title="SOLO"
+                subtitle="Choose how many bots to play against"
+                tone="cyan"
+              />
+            ) : (
             <div className="text-center">
               <Label className="block mb-2">Room Code</Label>
               <button
@@ -1037,6 +1063,7 @@ export function LobbyScreen({
                 </p>
               )}
             </div>
+            )}
 
             {/* Roster on the left, controls on the right — keeps the panel
                 landscape instead of one tall column. */}
@@ -1044,7 +1071,9 @@ export function LobbyScreen({
               <div className="flex flex-col gap-4">
                 {/* Player list */}
                 <div>
-                  <Label className="block mb-2">Players ({players.length}/4)</Label>
+                  <Label className="block mb-2">
+                    Players ({players.length + botCount}/{MAX_SLOTS})
+                  </Label>
                   <div className="flex flex-col gap-2">
                     {players.map((p) => (
                       <div
@@ -1059,6 +1088,19 @@ export function LobbyScreen({
                           )}
                         </span>
                         <Label>Slot {p.slot + 1}</Label>
+                      </div>
+                    ))}
+                    {botSlots.map((slot, i) => (
+                      <div
+                        key={`bot-${slot}`}
+                        className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-white/[.04] border border-dashed border-[rgba(124,196,255,.14)]"
+                      >
+                        <span className="flex items-center gap-2 font-bold">
+                          <Dot color={SLOT_COLORS[slot]} />
+                          Computer {i + 1}
+                          <Label>Bot</Label>
+                        </span>
+                        <Label>Slot {slot + 1}</Label>
                       </div>
                     ))}
                   </div>
@@ -1091,25 +1133,33 @@ export function LobbyScreen({
             {/* Host controls */}
             {isHost ? (
               <div className="flex flex-col gap-3">
-                <label className="flex items-center gap-3 text-sm cursor-pointer select-none">
-                  <Checkbox
-                    checked={fillBots}
-                    onChange={(e) => setFillBots(e.target.checked)}
-                  />
-                  Fill empty slots with bots
-                </label>
+                {maxBots > minBots && (
+                  <div>
+                    <Label className="block mb-2">Bots</Label>
+                    <Segmented
+                      options={Array.from(
+                        { length: maxBots - minBots + 1 },
+                        (_, i) => ({ value: String(minBots + i), label: String(minBots + i) })
+                      )}
+                      value={String(botCount)}
+                      onChange={(value) => onBotsChange(Number(value))}
+                    />
+                  </div>
+                )}
                 <Button
                   block
                   variant="green"
                   size="lg"
                   disabled={!canStart}
-                  onClick={() => onStart(fillBots)}
+                  onClick={() => onStart(botCount)}
                 >
-                  {canStart ? "Start Game" : "Need at least 2 participants"}
+                  {canStart ? "Start Game" : "Add a bot or wait for players"}
                 </Button>
-                <Button block variant="red" size="sm" onClick={onLeave}>
-                  Leave Room
-                </Button>
+                {!solo && (
+                  <Button block variant="red" size="sm" onClick={onLeave}>
+                    Leave Room
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="flex flex-col gap-3 text-center">
