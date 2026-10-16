@@ -74,7 +74,9 @@ const NICKNAME_MAX_LENGTH = 16;
 
 /** Slots no human holds, lowest first — where the host's bots go. */
 export function freeSlots(players: RoomPlayer[]): number[] {
-  return [0, 1, 2, 3].filter((slot) => !players.some((p) => p.slot === slot));
+  return Array.from({ length: MAX_SLOTS }, (_, i) => i).filter(
+    (slot) => !players.some((p) => p.slot === slot)
+  );
 }
 
 // Nicknames persist between visits so returning players keep their identity.

@@ -902,7 +902,8 @@ export default function Home() {
             isSpectator={isSpectator}
             myName={lobbyState.myName}
             roomMapId={lobbyState.mapId}
-            error={lobbyState.error}
+            // Solo has no room, so a stale room error ("Host left the game") doesn't apply.
+            error={soloLobby ? null : lobbyState.error}
             connecting={lobbyState.connecting}
             initialJoinCode={inviteJoinCode}
             lobbies={joinableLobbies}
