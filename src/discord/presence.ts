@@ -22,6 +22,8 @@ export interface PresenceContext {
   winnerName?: string;
   /** True when watching an online match without a player slot. */
   spectating?: boolean;
+  /** True in the local solo lobby (bot picker, no room). */
+  soloLobby?: boolean;
 }
 
 /** Subset of the setActivity activity partial we populate. */
@@ -41,7 +43,7 @@ function modeLabel(gameMode: GameMode): string {
     case "online":
       return "Online match";
     default:
-      return "Local match";
+      return "Solo match";
   }
 }
 
@@ -84,7 +86,7 @@ function buildActivity(
             party,
             ...joinable,
           }
-        : { type: 0, details: "In the menu", state: "Multiplayer lobby", assets };
+        : { type: 0, details: "In the menu", state: ctx.soloLobby ? "Solo lobby" : "Multiplayer lobby", assets };
     case GameState.PLAYING:
       return {
         type: 0,

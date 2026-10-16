@@ -33,4 +33,5 @@ export enum GameState {
   WIN = "WIN",
 }
 
-export type GameMode = "2 players" | "3 players" | "4 players" | "online";
+/** "solo" is the local game against bots; "online" goes through the relay. */
+export type GameMode = "solo" | "online";

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { AudioController } from "../components/AudioController";
 import { EndScreen } from "../components/screens/endScreen";
 import { GameHUD } from "../components/screens/gameHud";
-import { LobbyScreen } from "../components/screens/lobbyScreen";
+import { freeSlots, LobbyScreen } from "../components/screens/lobbyScreen";
 import { MapSelectScreen } from "../components/screens/mapSelectScreen";
 import { PauseScreen } from "../components/screens/pauseScreen";
 import { PlayersHUD } from "../components/screens/playerHud";
@@ -72,9 +72,12 @@ import {
 } from "../types/multiplayer";
 import Game from "./game";
 
+// The solo lobby's one human — named like the local player in the match.
+const SOLO_PLAYERS: RoomPlayer[] = [{ slot: 0, name: "Player 1", isHost: false }];
+
 export default function Home() {
   // Game state
-  const [gameMode, setGameMode] = useState<GameMode>("2 players");
+  const [gameMode, setGameMode] = useState<GameMode>("solo");
   const [gameState, setGameState] = useState<GameState>(GameState.START);
   const [timeElapsedMs, setTimeElapsedMs] = useState(0);
   const [winner, setWinner] = useState<PlayerStats | undefined>(undefined);
@@ -113,10 +116,16 @@ export default function Home() {
   // can read it without re-subscribing.
   const rosterRef = useRef<RosterEntry[]>([]);
 
-  // Pending start params held while the map-select screen is shown. The
-  // online entry carries the host's "fill bots" choice; null = local game.
-  const pendingModeRef = useRef<GameMode>("2 players");
-  const pendingOnlineFillBotsRef = useRef<boolean | null>(null);
+  // True while the lobby screen is the local solo lobby (no relay room).
+  const [soloLobby, setSoloLobby] = useState(false);
+  // The lobby's bot picker. Defaults to filling every free slot; clamped to
+  // the free slots by the lobby screen.
+  const [lobbyBots, setLobbyBots] = useState(3);
+  // Bots the solo game started with — kept for "Play Again".
+  const soloBotsRef = useRef(1);
+  // The online host's bot count, held while the map-select screen is shown;
+  // null = the map pick is for a solo game.
+  const pendingOnlineBotsRef = useRef<number | null>(null);
 
   // Discord Activity state: the room code carried by a shareLink invite
   // (pre-fills the lobby join box), and whether the SDK has authenticated —
@@ -277,6 +286,7 @@ export default function Home() {
     ) {
       return;
     }
+    setSoloLobby(false);
     setGameState(GameState.LOBBY);
     const name = discordNameRef.current;
     if (name) {
@@ -459,6 +469,7 @@ export default function Home() {
       // not the engine callbacks that set `winner`.
       winnerName: winner?.name ?? getLatestGameOver()?.winner?.name,
       spectating: isSpectator,
+      soloLobby,
     });
   }, [
     gameState,
@@ -468,47 +479,41 @@ export default function Home() {
     winner,
     discordReady,
     isSpectator,
+    soloLobby,
   ]);
 
   // =========================
-  // Start screen handlers (solo/local)
+  // Solo: a local lobby to pick bots, then the map
   // =========================
-  const handleGameStart = (mode: GameMode) => {
-    pendingModeRef.current = mode;
-    pendingOnlineFillBotsRef.current = null;
+  const handleSolo = () => {
+    setSoloLobby(true);
+    setGameState(GameState.LOBBY);
+  };
+
+  const handleSoloStart = (bots: number) => {
+    soloBotsRef.current = bots;
+    pendingOnlineBotsRef.current = null;
     setGameState(GameState.MAP_SELECT);
   };
 
-  // Actually launches a solo/local game once a map has been chosen.
-  const startLocalGame = (mode: GameMode) => {
+  // Actually launches a solo game once a map has been chosen.
+  const startLocalGame = () => {
     setIsGuest(false);
-    setGameMode(mode);
+    setGameMode("solo");
     setGameState(GameState.PLAYING);
     setTimeElapsedMs(0);
     setWinner(undefined);
     resetGrid();
     tracker.reset();
     tracker.startGame();
-
-    switch (mode) {
-      case "2 players":
-        setDesiredPlayersCount(2);
-        break;
-      case "3 players":
-        setDesiredPlayersCount(3);
-        break;
-      case "4 players":
-        setDesiredPlayersCount(4);
-        break;
-      default:
-        setDesiredPlayersCount(2);
-    }
+    setDesiredPlayersCount(1 + soloBotsRef.current);
   };
 
   // =========================
   // Lobby handlers
   // =========================
   const handleMultiplayer = () => {
+    setSoloLobby(false);
     setGameState(GameState.LOBBY);
     setLobbyState({
       code: null,
@@ -570,7 +575,7 @@ export default function Home() {
         error: relayConnectError,
       }));
       setIsGuest(false);
-      setGameMode("2 players");
+      setGameMode("solo");
     }
   };
 
@@ -619,22 +624,22 @@ export default function Home() {
   // =========================
   // Host: start the online game
   // =========================
-  const handleStartOnlineGame = (fillBots: boolean) => {
+  const handleStartOnlineGame = (bots: number) => {
     // The map was picked at room creation and is advertised to joiners —
     // start on it directly instead of re-picking on the map-select screen.
     // Rooms without a declared map (created before map support) fall back
     // to the picker.
     if (lobbyState.mapId) {
       setMapPattern(lobbyState.mapId);
-      startOnlineGame(fillBots);
+      startOnlineGame(bots);
       return;
     }
-    pendingOnlineFillBotsRef.current = fillBots;
+    pendingOnlineBotsRef.current = bots;
     setGameState(GameState.MAP_SELECT);
   };
 
   // Actually launches the online game once the host has chosen a map.
-  const startOnlineGame = (fillBots: boolean) => {
+  const startOnlineGame = (bots: number) => {
     const mySlot = roomClient.getSlot();
     const roster: RosterEntry[] = lobbyState.players.map((p) => ({
       id: `player-${p.slot + 1}`,
@@ -643,19 +648,17 @@ export default function Home() {
       slot: p.slot,
     }));
 
-    // Fill remaining slots with bots if requested.
-    if (fillBots) {
-      let botIndex = 1;
-      for (let slot = roster.length; slot < 4; slot++) {
+    // Bots take the free slots, same ones the lobby showed them in.
+    freeSlots(lobbyState.players)
+      .slice(0, bots)
+      .forEach((slot, i) => {
         roster.push({
-          id: `computer-${botIndex}`,
-          name: `Computer ${botIndex}`,
+          id: `computer-${i + 1}`,
+          name: `Computer ${i + 1}`,
           control: "computer",
           slot,
         });
-        botIndex++;
-      }
-    }
+      });
 
     rosterRef.current = roster;
 
@@ -684,21 +687,18 @@ export default function Home() {
   // =========================
   const handleMapSelect = (mapId: string) => {
     setMapPattern(mapId);
-    const fillBots = pendingOnlineFillBotsRef.current;
-    if (fillBots !== null) {
-      startOnlineGame(fillBots);
+    const bots = pendingOnlineBotsRef.current;
+    if (bots !== null) {
+      startOnlineGame(bots);
     } else {
-      startLocalGame(pendingModeRef.current);
+      startLocalGame();
     }
   };
 
   const handleMapSelectBack = () => {
-    if (pendingOnlineFillBotsRef.current !== null) {
-      pendingOnlineFillBotsRef.current = null;
-      setGameState(GameState.LOBBY);
-    } else {
-      setGameState(GameState.START);
-    }
+    // Both online and solo picks come from a lobby, so back returns there.
+    pendingOnlineBotsRef.current = null;
+    setGameState(GameState.LOBBY);
   };
 
   // =========================
@@ -753,9 +753,9 @@ export default function Home() {
       return;
     }
 
-    // Solo/local: restart straight away with the same map selection — a
+    // Solo: restart straight away with the same bots and map selection — a
     // "random" pick re-rolls on this reset.
-    startLocalGame(gameMode);
+    startLocalGame();
   };
 
   // Guest/spectator: leave the end screen for the room lobby. Only offered
@@ -877,7 +877,7 @@ export default function Home() {
         {/* Start Screen */}
         {gameState === GameState.START && (
           <StartScreen
-            onStart={handleGameStart}
+            onSolo={handleSolo}
             onMultiplayer={handleMultiplayer}
             lobbies={joinableLobbies}
             onJoinLobby={(code) => joinFromDiscordRef.current(code)}
@@ -896,13 +896,14 @@ export default function Home() {
         {gameState === GameState.LOBBY && (
           <LobbyScreen
             roomCode={lobbyState.code}
-            players={lobbyState.players}
+            players={soloLobby ? SOLO_PLAYERS : lobbyState.players}
             spectators={lobbyState.spectators}
-            isHost={lobbyState.isHost}
+            isHost={soloLobby || lobbyState.isHost}
             isSpectator={isSpectator}
             myName={lobbyState.myName}
             roomMapId={lobbyState.mapId}
-            error={lobbyState.error}
+            // Solo has no room, so a stale room error ("Host left the game") doesn't apply.
+            error={soloLobby ? null : lobbyState.error}
             connecting={lobbyState.connecting}
             initialJoinCode={inviteJoinCode}
             lobbies={joinableLobbies}
@@ -910,8 +911,11 @@ export default function Home() {
             onJoin={handleJoinRoom}
             onSwitchRole={handleSwitchRole}
             onLeave={handleLeaveRoom}
-            onStart={handleStartOnlineGame}
+            bots={lobbyBots}
+            onBotsChange={setLobbyBots}
+            onStart={soloLobby ? handleSoloStart : handleStartOnlineGame}
             onBack={handleLobbyBack}
+            solo={soloLobby}
           />
         )}
 
