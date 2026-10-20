@@ -2,9 +2,10 @@ import { GridPosition } from "../types/game";
 import { CellSnapshot } from "../types/multiplayer";
 import { createTileVisual, rescaleTileVisual, TileKind } from "./assets/blocks";
 import { createBombVisual } from "./assets/dynamite";
-import { createPowerUp, PowerupType, rescalePowerUpVisual } from "./assets/powerups";
+import { createPowerUp, rescalePowerUpVisual } from "./assets/powerups";
 import { GRID_PATTERN, LAYOUT_CONFIG } from "./core/config";
 import { getActiveMapPattern, isInSpawnZone, MapPattern } from "./maps";
+import { getCells, getCellState, isSolid, resetCells } from "./state";
 
 // =========================
 // Types
@@ -178,34 +179,12 @@ function createCellElement(cellData: CellData): HTMLDivElement {
     position: "relative",
   });
 
-  // Set data attributes
+  // Position only, for devtools inspection; cell state lives in ./state.
   cell.dataset.index = String(cellData.index);
   cell.dataset.row = String(cellData.row);
   cell.dataset.col = String(cellData.col);
-  cell.dataset.solid = "0";
-  cell.dataset.tile = cellTypeToTileKind(cellData.type);
 
-  // Add blocks based on cell type
-  switch (cellData.type) {
-    case "border":
-    case "solid":
-      cell.appendChild(createTileVisual("wall", cellSize));
-      cell.dataset.solid = "1";
-      break;
-    case "crate":
-      cell.appendChild(createTileVisual("crate", cellSize));
-      cell.dataset.solid = "1";
-      cell.dataset.barrel = "1";
-      break;
-    case "barrel":
-      cell.appendChild(createTileVisual("barrel", cellSize));
-      cell.dataset.solid = "1";
-      cell.dataset.barrel = "1";
-      break;
-    case "empty":
-      cell.appendChild(createTileVisual("floor", cellSize));
-      break;
-  }
+  cell.appendChild(createTileVisual(cellTypeToTileKind(cellData.type), cellSize));
 
   return cell;
 }
@@ -241,6 +220,11 @@ function buildGrid(layout: GridLayout): HTMLDivElement {
 // =========================
 let currentLayout: GridLayout | null = null;
 
+/** Load a layout into the data model (./state). */
+function loadCells(layout: GridLayout): void {
+  resetCells(layout.cells.map((c) => cellTypeToTileKind(c.type)), gridCols);
+}
+
 /**
  * Cached cell elements in row-major order. Populated when the grid is (re)built
  * and kept in sync with the grid's children so `getCellAt` can index directly
@@ -257,6 +241,7 @@ const grid: HTMLDivElement =
   typeof document !== "undefined"
     ? (() => {
         currentLayout = generateGridLayout();
+        loadCells(currentLayout);
         const built = buildGrid(currentLayout);
         // The grid element is assigned to `grid` below; populate the cache from
         // the built element's children before the reference is returned.
@@ -292,6 +277,7 @@ export function resetGrid(cellTypes?: TileKind[]): void {
     currentLayout = generateGridLayout();
   }
 
+  loadCells(currentLayout);
   grid.innerHTML = "";
 
   currentLayout.cells.forEach((cellData) => {
@@ -322,10 +308,7 @@ function tileKindToCellType(tile: TileKind): CellType {
  * once at game start so guests can rebuild an identical grid.
  */
 export function getLayoutCellTypes(): TileKind[] {
-  if (typeof document === "undefined") return [];
-  // Iterate cellCache, not grid.children: character and blast elements are
-  // also appended to the grid and are not cells.
-  return cellCache.map((cell) => (cell.dataset.tile as TileKind) || "floor");
+  return getCells().map((cell) => cell.tile);
 }
 
 /**
@@ -387,12 +370,8 @@ export function getCellAt(row: number, col: number): HTMLDivElement | null {
  * Check if a position is walkable (not solid)
  */
 export function isWalkable(row: number, col: number): boolean {
-  // Out-of-bounds positions are never walkable. Without this guard the
-  // `getCellAt` null result makes `null?.dataset.solid !== "1"` evaluate to
-  // true, treating OOB cells as walkable.
-  if (row < 0 || row >= gridRows || col < 0 || col >= gridCols) return false;
-  const cell = getCellAt(row, col);
-  return cell?.dataset.solid !== "1";
+  // Off-grid positions resolve to null, which isSolid treats as solid.
+  return !isSolid(getCellState(row, col));
 }
 
 // =========================
@@ -422,83 +401,54 @@ function findBombElement(cell: HTMLElement): HTMLDivElement | null {
  * network snapshot. Called by the host each tick.
  */
 export function getCellSnapshots(): CellSnapshot[] {
-  if (typeof document === "undefined") return [];
-  const snapshots: CellSnapshot[] = [];
-  // Iterate cellCache, not grid.children: character and blast elements are
-  // also appended to the grid and must not leak into snapshots.
-  for (const cell of cellCache) {
-    const index = Number(cell.dataset.index);
-    const tile = (cell.dataset.tile as TileKind) || "floor";
-    const bomb = findBombElement(cell) !== null;
-    const powerupEl = findPowerupElement(cell);
-    const powerup = powerupEl
-      ? (powerupEl.dataset.powerup as PowerupType)
-      : null;
-    snapshots.push({ index, tile, bomb, powerup });
-  }
-  return snapshots;
+  return getCells().map((cell, index) => ({
+    index,
+    tile: cell.tile,
+    bomb: cell.bomb,
+    powerup: cell.powerup,
+  }));
 }
 
 /**
- * Apply a set of cell snapshots to the local grid. Called by guests each
- * tick to mirror the host's grid. Rebuilds tile/bomb/powerup visuals only
- * when they actually change, to avoid flapping the DOM every frame.
+ * Apply a set of cell snapshots to the local data model and re-render the
+ * cells that changed. Called by guests each tick to mirror the host's grid;
+ * diffing against the model avoids flapping the DOM every frame.
  */
-export function applyCellSnapshots(cells: CellSnapshot[]): void {
+export function applyCellSnapshots(snapshots: CellSnapshot[]): void {
   if (typeof document === "undefined") return;
   const liveCellSize = cellCache[0]?.offsetWidth || cellSize;
+  const cells = getCells();
 
-  for (const snap of cells) {
+  for (const snap of snapshots) {
+    const state = cells[snap.index];
     const cell = cellCache[snap.index];
-    if (!cell) continue;
+    if (!state || !cell) continue;
 
     // --- Tile kind changed (e.g. a barrel was destroyed) ---
-    const currentTile = (cell.dataset.tile as TileKind) || "floor";
-    if (currentTile !== snap.tile) {
+    if (state.tile !== snap.tile) {
+      state.tile = snap.tile;
       // Replace the tile visual (always the first child).
       const oldTile = cell.firstElementChild as HTMLDivElement | null;
       if (oldTile) cell.removeChild(oldTile);
-      const newTile = createTileVisual(snap.tile, liveCellSize);
-      cell.insertBefore(newTile, cell.firstChild);
-      cell.dataset.tile = snap.tile;
-
-      // Update solidity + barrel flag to match the new tile.
-      const isSolid = snap.tile === "wall" || snap.tile === "crate" || snap.tile === "barrel";
-      cell.dataset.solid = isSolid ? "1" : "0";
-      if (snap.tile === "crate" || snap.tile === "barrel") {
-        cell.dataset.barrel = "1";
-      } else {
-        delete (cell.dataset as any).barrel;
-      }
+      cell.insertBefore(createTileVisual(snap.tile, liveCellSize), cell.firstChild);
     }
 
     // --- Bomb presence ---
-    const bombEl = findBombElement(cell);
-    if (snap.bomb && !bombEl) {
-      const newBomb = createBombVisual(liveCellSize);
-      cell.appendChild(newBomb);
-      (cell.dataset as any).bomb = "1";
-      cell.dataset.solid = "1";
-    } else if (!snap.bomb && bombEl) {
-      cell.removeChild(bombEl);
-      delete (cell.dataset as any).bomb;
-      // Restore walkability only if the tile itself isn't solid.
-      const tile = (cell.dataset.tile as TileKind) || "floor";
-      if (tile !== "wall" && tile !== "crate" && tile !== "barrel") {
-        cell.dataset.solid = "0";
-      }
+    if (state.bomb !== snap.bomb) {
+      state.bomb = snap.bomb;
+      const bombEl = findBombElement(cell);
+      if (snap.bomb && !bombEl) cell.appendChild(createBombVisual(liveCellSize));
+      else if (!snap.bomb && bombEl) cell.removeChild(bombEl);
     }
 
     // --- Powerup presence ---
-    const powerupEl = findPowerupElement(cell);
-    if (snap.powerup && !powerupEl) {
-      const pu = createPowerUp(snap.powerup, liveCellSize);
-      cell.appendChild(pu);
-    } else if (!snap.powerup && powerupEl) {
-      cell.removeChild(powerupEl);
+    if (state.powerup !== snap.powerup) {
+      state.powerup = snap.powerup;
+      const powerupEl = findPowerupElement(cell);
+      if (powerupEl) cell.removeChild(powerupEl);
+      if (snap.powerup) cell.appendChild(createPowerUp(snap.powerup, liveCellSize));
     }
   }
 }
 
 export { cellSize, grid, gridCols, gridRows, isInSpawnZone };
-

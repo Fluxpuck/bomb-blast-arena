@@ -1,9 +1,9 @@
-import { PowerupType } from "./assets/powerups";
 import { GRID_PATTERN } from "./core/config";
 import { getCellAt, gridCols, gridRows, isWalkable } from "./grid";
 import { playSound } from "./hooks/sound";
 import { tracker } from "./hooks/tracker";
 import { Character, characterManager } from "./player";
+import { getCellState } from "./state";
 import { GridPosition } from "../types/game";
 
 /**
@@ -14,24 +14,11 @@ export function checkPowerupPickup(character: Character): void {
   // Skip if character is not alive
   if (!character.isAlive()) return;
 
-  // Get the cell at the character's position
-  const cell = getCellAt(
-    character.gridPosition.row,
-    character.gridPosition.col
-  );
-  if (!cell) return;
-
-  // Check if there's a powerup in this cell
-  const powerupElements = Array.from(cell.children).filter((child) => {
-    const element = child as HTMLElement;
-    return element.dataset.powerup !== undefined;
-  });
-
-  if (powerupElements.length === 0) return;
-
-  // Get the powerup element
-  const powerupElement = powerupElements[0] as HTMLElement;
-  const powerupType = powerupElement.dataset.powerup as PowerupType;
+  // Check if there's a powerup at the character's position
+  const { row, col } = character.gridPosition;
+  const state = getCellState(row, col);
+  const powerupType = state?.powerup;
+  if (!state || !powerupType) return;
 
   // Get the player tracker
   const playerTracker = tracker.getPlayer(character.id);
@@ -68,7 +55,8 @@ export function checkPowerupPickup(character: Character): void {
   }
 
   // Remove the powerup from the cell
-  cell.removeChild(powerupElement);
+  state.powerup = null;
+  getCellAt(row, col)?.querySelector("[data-powerup]")?.remove();
 }
 
 /**
@@ -87,15 +75,15 @@ function findRandomTeleportDestination(character: Character): GridPosition | nul
         continue;
       }
 
-      const cell = getCellAt(row, col);
+      const cell = getCellState(row, col);
       const isOccupied = characters.some(
         (candidate) =>
           candidate.gridPosition.row === row && candidate.gridPosition.col === col
       );
       const isAvailable =
         isWalkable(row, col) &&
-        cell?.dataset.bomb !== "1" &&
-        !cell?.querySelector("[data-powerup]") &&
+        !cell?.bomb &&
+        !cell?.powerup &&
         !isOccupied;
 
       if (isAvailable) openCells.push({ row, col });
@@ -104,22 +92,4 @@ function findRandomTeleportDestination(character: Character): GridPosition | nul
 
   if (openCells.length === 0) return null;
   return openCells[Math.floor(Math.random() * openCells.length)];
-}
-
-/**
- * Check if a cell has a powerup
- * @param cell The cell element to check
- * @returns True if the cell has a powerup, false otherwise
- */
-export function hasPowerup(cell: HTMLElement | null): boolean {
-  if (!cell) return false;
-
-  for (const child of Array.from(cell.children)) {
-    const element = child as HTMLElement;
-    if (element.dataset.powerup !== undefined) {
-      return true;
-    }
-  }
-
-  return false;
 }

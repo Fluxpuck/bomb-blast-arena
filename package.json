@@ -13,6 +13,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\"",
     "ws": "node server/ws-server.js",
     "seed": "node server/lobby-seeder.js"
   },

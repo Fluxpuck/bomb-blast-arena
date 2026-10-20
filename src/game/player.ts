@@ -235,8 +235,8 @@ export class Player extends Character {
 // =========================
 // Computer Class
 // =========================
-// AI decision-making lives entirely in ai.ts, working directly against the
-// live DOM grid/dataset flags — this class only carries identity/stats,
+// AI decision-making lives entirely in ai.ts, working against the grid data
+// model in state.ts — this class only carries identity/stats,
 // same as Player.
 export class Computer extends Character {
   // Identity flag distinguishing AI-controlled characters from humans.
