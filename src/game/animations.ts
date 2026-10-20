@@ -12,7 +12,7 @@ import {
 } from "./core/config";
 import { playSound } from "./hooks/sound";
 import { tracker } from "./hooks/tracker";
-import { hasPowerup } from "./powerup";
+import { computeBlast, getCellState, isBreakable, isSolid } from "./state";
 
 // Track bomb timers to prevent double explosions
 const bombTimers: Map<string, number> = new Map();
@@ -152,77 +152,6 @@ function getCell(
   return (grid.children[gridIndex(row, col)] as HTMLDivElement) ?? null;
 }
 
-// Get the cell flags at the given position
-function getCellFlags(grid: HTMLElement, row: number, col: number) {
-  const cell = getCell(grid, row, col);
-  const exists = !!cell;
-  const solid = !cell || cell.dataset.solid === "1";
-  const barrel = !!cell && (cell.dataset as any).barrel === "1";
-  const bomb = !!cell && (cell.dataset as any).bomb === "1";
-  const powerup = !!cell && hasPowerup(cell);
-  return { cell, exists, solid, barrel, bomb, powerup } as const;
-}
-
-/**
- * Walks outward from `at` in all 4 directions up to `range` tiles, stopping
- * early at grid edges or solid/wall cells exactly like a real explosion does.
- * The center cell is always included in the affected cells. Shared by the
- * real explosion (armDynamite) and the AI's danger prediction so the two can
- * never disagree about what a bomb will hit.
- */
-export function computeBlast(
-  grid: HTMLElement,
-  at: GridPosition,
-  range: number
-): { affected: GridPosition[]; reach: BlastReach } {
-  const affected: GridPosition[] = [{ row: at.row, col: at.col }];
-  const outward = Math.max(0, range);
-  const dirs: Array<[name: keyof BlastReach, dr: number, dc: number]> = [
-    ["up", -1, 0],
-    ["down", 1, 0],
-    ["left", 0, -1],
-    ["right", 0, 1],
-  ];
-  const reach: BlastReach = { up: 0, down: 0, left: 0, right: 0 };
-
-  for (const [name, dr, dc] of dirs) {
-    for (let step = 1; step <= outward; step++) {
-      const r = at.row + dr * step;
-      const c = at.col + dc * step;
-      const flags = getCellFlags(grid, r, c);
-
-      // Stop if we hit the edge of the grid
-      if (!flags.exists) break;
-
-      // Indestructible blocks stop the blast but are not part of its damage area.
-      const isIndestructible =
-        flags.solid && !flags.barrel && !flags.bomb && !flags.powerup;
-      if (isIndestructible) break;
-
-      // Open cells are traversable. Barrels and bombs are affected, then stop
-      // propagation so the blast cannot pass through an occupied cell.
-      affected.push({ row: r, col: c });
-      reach[name] = step;
-      if (flags.solid && (flags.barrel || flags.bomb)) break;
-    }
-  }
-
-  return { affected, reach };
-}
-
-/**
- * Predicts which cells a pending (not-yet-exploded) bomb will hit, using
- * the exact same walking logic as a real explosion. Used by the AI for
- * danger-avoidance, not by any gameplay/visual code path.
- */
-export function predictBlastCells(
-  grid: HTMLElement,
-  at: GridPosition,
-  range: number
-): GridPosition[] {
-  return computeBlast(grid, at, range).affected;
-}
-
 // =========================
 // Public API
 // =========================
@@ -239,12 +168,12 @@ export function armDynamite(
 ): boolean {
   // Get the cell at the given position
   const cell = getCell(grid, at.row, at.col);
-  if (!cell) return false;
+  const here = getCellState(at.row, at.col);
+  if (!cell || !here) return false;
 
   // Can't place inside walls/solids (allow placing on open tiles only)
   // Exception: allow placing on barrels (destructible blocks)
-  const here = getCellFlags(grid, at.row, at.col);
-  if (here.solid && !here.barrel) return false;
+  if (isSolid(here) && !isBreakable(here)) return false;
 
   // Get the fuse duration
   const fuse = Math.max(0, opts?.fuseMs ?? BOMB_CONFIG.fuseDuration);
@@ -254,9 +183,8 @@ export function armDynamite(
   const dyn = createBombVisual(cellSizePx, fuse);
   cell.appendChild(dyn);
 
-  // Mark as bomb and make the cell solid so it can't be walked through
-  (cell.dataset as any).bomb = "1";
-  cell.dataset.solid = "1";
+  // Mark as bomb, which makes the cell solid so it can't be walked through
+  here.bomb = true;
 
   // Generate a unique ID for this bomb based on its position
   const bombId = `bomb-${at.row}-${at.col}`;
@@ -318,15 +246,13 @@ function detonateBomb(bombId: string): void {
 
   if (dyn.parentElement) dyn.parentElement.removeChild(dyn); // Remove dynamite visual
 
-  // Clear bomb flag and restore walkability if there's no barrel
-  delete (cell.dataset as any).bomb;
-  if ((cell.dataset as any).barrel !== "1") {
-    cell.dataset.solid = "0";
-  }
+  // Clear bomb flag, which restores walkability if there's no barrel
+  const here = getCellState(at.row, at.col);
+  if (here) here.bomb = false;
 
   // Gather explosion cells (center + range in all directions), stopping
   // at walls/barrels exactly like the visual does (shared helper).
-  const { affected, reach } = computeBlast(grid, at, range);
+  const { affected, reach } = computeBlast(at, range);
 
   // Notify detonation and apply damage timing now. Pass the owner through so
   // chain reactions attribute damage to the bomb's own owner.
@@ -363,16 +289,13 @@ function detonateBomb(bombId: string): void {
   // Apply gameplay effects to affected cells (destroy barrels/crates, chain bombs)
   for (const gp of affected) {
     const target = getCell(grid, gp.row, gp.col);
-    if (!target) continue;
+    const state = getCellState(gp.row, gp.col);
+    if (!target || !state) continue;
 
-    // Skip solid walls (but not barrels, bombs, or powerups)
-    const isBarrel = (target.dataset as any).barrel === "1";
-    const isBomb = (target.dataset as any).bomb === "1";
-    const isSolid = target.dataset.solid === "1";
-    const isPowerup = hasPowerup(target);
-
-    // Only skip permanent solid walls - allow explosion to affect everything else
-    if (isSolid && !isBarrel && !isBomb && !isPowerup) continue;
+    // Only skip permanent walls - allow explosion to affect everything else
+    if (state.tile === "wall") continue;
+    const isBomb = state.bomb;
+    const isPowerup = state.powerup !== null;
 
     // Chain reaction: If this cell has a bomb, detonate it immediately
     if (isBomb) {
@@ -405,10 +328,7 @@ function detonateBomb(bombId: string): void {
         target.removeChild(bombElement);
 
         // Clear bomb flag immediately
-        delete (target.dataset as any).bomb;
-        if ((target.dataset as any).barrel !== "1") {
-          target.dataset.solid = "0";
-        }
+        state.bomb = false;
 
         // Trigger the chain reaction with a small delay
         window.setTimeout(() => {
@@ -429,6 +349,7 @@ function detonateBomb(bombId: string): void {
 
     // Power-ups caught in the blast are destroyed
     if (isPowerup) {
+      state.powerup = null;
       for (const child of Array.from(target.children)) {
         const element = child as HTMLElement;
         if (element.dataset.powerup !== undefined) {
@@ -438,13 +359,11 @@ function detonateBomb(bombId: string): void {
     }
 
     // Handle barrels
-    if ((target.dataset as any).barrel === "1") {
+    if (isBreakable(state)) {
       if (target.firstElementChild) {
         target.removeChild(target.firstElementChild);
       }
-      target.dataset.solid = "0";
-      target.dataset.tile = "floor";
-      delete (target.dataset as any).barrel;
+      state.tile = "floor";
       // Attribute stats to owner if provided; default to p1 proxy otherwise.
       // incrementBlocksDestroyed is the single authoritative scoring path: it
       // bumps the block counter AND awards SCORE_CONFIG.pointsPerBarrel, so no
@@ -469,8 +388,8 @@ function detonateBomb(bombId: string): void {
         ] as PowerupType[];
         const t = types[Math.floor(Math.random() * types.length)];
         const cellSizePx = target.offsetWidth || GRID_PATTERN.cellSize;
-        const pu = createPowerUp(t, cellSizePx);
-        target.appendChild(pu);
+        state.powerup = t;
+        target.appendChild(createPowerUp(t, cellSizePx));
       }
     }
   }

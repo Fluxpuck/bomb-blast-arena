@@ -6,7 +6,7 @@ Guidance for AI coding agents working in this repository.
 
 **Bomb Blast Arena** (lo-fi-bomberman) is a browser-based bombing game built with Next.js 16 (App Router), TypeScript, and Tailwind CSS. It has a **Solo** mode (1 human + 1–3 AI opponents, picked in a local solo lobby) and an online **Multiplayer** mode (up to 4 humans, with the host adding bots to free slots) with bomb placement, destructible barrels, power-ups, and a timed game mode.
 
-The game loop and rendering are **imperative DOM manipulation** driven by `requestAnimationFrame`, not React state. React is used only for the surrounding UI (screens, HUDs, audio controls). The game grid is a real DOM element built with `document.createElement`.
+The game loop and rendering are **imperative DOM manipulation** driven by `requestAnimationFrame`, not React state. React is used only for the surrounding UI (screens, HUDs, audio controls). The arena's state (tile kinds, bombs, power-ups) lives in a plain data model in `src/game/state.ts`; the game grid is a real DOM element built with `document.createElement` that only renders that model.
 
 ## Commands
 
@@ -17,8 +17,9 @@ Dependencies must be installed first (`yarn install`) — `node_modules` is giti
 - `yarn start` — run the production build
 - `yarn lint` — run ESLint (`eslint .` with `next/core-web-vitals`)
 - `yarn typecheck` — run `tsc --noEmit`
+- `yarn test` — run headless unit tests (`node --test "src/**/*.test.ts"`, Node's built-in runner with native TypeScript type stripping; no test dependency)
 
-There is **no test framework** configured. There are no unit/integration/e2e tests.
+Only pure, DOM-free modules (currently `src/game/state.ts`) have unit tests. Everything that touches the DOM is verified by playing the game. See `.claude/skills/testing/SKILL.md` for the full testing workflow.
 
 ## Tech Stack
 
@@ -44,7 +45,8 @@ src/
     hooks/             tracker.ts (stats), sound.ts (audio)
     net/               Online multiplayer (roomClient, host, guest)
     engine.ts          Game loop, per-player input, lifecycle, win conditions, roster
-    grid.ts            Grid generation + DOM building + walkability + cell snapshots
+    state.ts           Grid data model (CellState per cell), blast walk; DOM-free + unit tested
+    grid.ts            Grid generation + DOM rendering of the model + walkability + cell snapshots
     input.ts           Shared keyboard key -> direction mapping
     player.ts          Character/Player/Computer classes + CharacterManager singleton
     ai.ts              AI movement logic (BFS pathfinding, danger avoidance)
@@ -61,9 +63,10 @@ public/                Static assets (images, music, soundFX)
 | Module | Responsibility |
 | --- | --- |
 | `src/game/engine.ts` | Main `requestAnimationFrame` loop, keyboard input, movement, bomb placement, blast-cell damage, win conditions, game lifecycle (`startEngine`/`stopEngine`/`pauseGame`/`resumeGame`) |
-| `src/game/grid.ts` | Generates the grid layout (borders, checkerboard solids, random barrels, corner spawn zones), builds the DOM grid, exposes `isWalkable`/`getCellAt`/`resetGrid`/`updateGridLayout` |
+| `src/game/state.ts` | The arena data model: one `CellState` (`tile`, `bomb`, `powerup`) per cell. `getCellState`/`isSolid`/`isBreakable`/`findCells`, and `computeBlast`/`predictBlastCells` (the blast walk shared by explosions and AI danger prediction). No DOM or config imports, so it runs under `node --test` |
+| `src/game/grid.ts` | Generates the grid layout (borders, checkerboard solids, random barrels, corner spawn zones), loads it into the model, builds the DOM grid, exposes `isWalkable`/`getCellAt` (DOM element)/`resetGrid`/`updateGridLayout`, and reads/writes network snapshots from/to the model |
 | `src/game/player.ts` | `Character` base class (lives, damage cooldown, immunity, inventory, bomb range), `Player` and `Computer` subclasses, `CharacterManager` singleton |
-| `src/game/ai.ts` | `updateComputerPlayers` — BFS pathfinding AI: chase enemies, clear barrels, grab powerups, flee bomb danger |
+| `src/game/ai.ts` | `updateComputerPlayers` — BFS pathfinding AI over the data model: chase enemies, clear barrels, grab powerups, flee bomb danger |
 | `src/game/animations.ts` | `armDynamite` — bomb fuse timer (pausable via `pauseBombTimers`/`resumeBombTimers`), explosion propagation, barrel destruction, chain reactions, power-up drops |
 | `src/game/powerup.ts` | `checkPowerupPickup` — detects and applies power-ups when a character steps on them |
 | `src/game/core/config.ts` | All tunable constants: `GAME_CONFIG`, `GRID_PATTERN`, `PLAYER_CONFIG`, `BOMB_CONFIG`, `SCORE_CONFIG`, `POWERUP_CONFIG` |
@@ -90,20 +93,22 @@ The engine exposes callback setters (`setOnPlayerDead`, `setOnTimeOver`, `setOnW
 
 ### Rendering model
 
-The grid is a single `HTMLDivElement` (`id="game-grid"`) built once in `grid.ts` and mounted into React via a ref in `game.tsx`. Characters keep one wrapper element each in `charElements`; `renderCharacters()` only updates position per frame and rebuilds the inner visual when its inputs (state/facing/palette/cell size) change. Cell walkability is tracked via `dataset.solid`, `dataset.barrel`, `dataset.bomb`, and `dataset.powerup` attributes on each cell. Note: characters and blast visuals are also children of `grid` — iterate `cellCache` (not `grid.children`) when reading cell state.
+**State lives in the model, not the DOM.** `src/game/state.ts` holds one `CellState` per cell (`tile: "floor" | "wall" | "crate" | "barrel"`, `bomb: boolean`, `powerup: PowerupType | null`). Solidity is derived (`isSolid`: wall, crate, barrel or bomb), never stored. Gameplay code (`engine.ts`, `animations.ts`, `powerup.ts`, `ai.ts`) and the host's snapshots (`getCellSnapshots`) read the model; guests write incoming snapshots into the model (`applyCellSnapshots`) and re-render only the cells that changed. When you change cell state, update the model first and then the matching visual in the same place. Never read gameplay state back from the DOM. The only `data-*` attributes left are renderer markers: `data-index/row/col` on cells (devtools inspection) and `data-powerup` on a power-up visual so the renderer can find and rescale it.
+
+The grid is a single `HTMLDivElement` (`id="game-grid"`) built once in `grid.ts` and mounted into React via a ref in `game.tsx`. Characters keep one wrapper element each in `charElements`; `renderCharacters()` only updates position per frame and rebuilds the inner visual when its inputs (state/facing/palette/cell size) change. Note: characters and blast visuals are also children of `grid` — use `getCellAt`/`cellCache` (not `grid.children`) when looking up a cell element.
 
 ## Conventions
 
 ### Code style
 
-- **TypeScript strict mode** is on — avoid `any` except where the codebase already uses it (e.g. `dataset` casts).
+- **TypeScript strict mode** is on — avoid `any`.
 - **Named exports** for game modules; **default exports** only for Next.js pages/layouts and the `Game` component.
 - **Section comments** with `// =========================` dividers are used throughout game modules — follow this pattern when adding to those files.
 - **JSDoc comments** on exported functions describe purpose and params.
 - **SSR guards**: game modules that touch the DOM guard with `typeof document !== "undefined"` or `typeof window === "undefined"`. Always add these guards in new game-side code.
 - **Styling**: React components use Tailwind classes; imperative DOM elements use `Object.assign(el.style, {...})` with inline styles.
 - **Config**: all tunable values live in `src/game/core/config.ts` as named constant objects. Do not hardcode magic numbers — add them to the relevant config object.
-- **No tests**: there is no test runner. Verify changes by running `yarn dev` and playing the game, plus `yarn lint`.
+- **Tests**: pure logic goes in DOM-free modules with a colocated `*.test.ts` (Node's `node:test`, imports with explicit `.ts` extensions). DOM code is verified by playing the game. Run `yarn typecheck`, `yarn lint` and `yarn test` before pushing; see `.claude/skills/testing/SKILL.md`.
 
 ### Commit style
 
@@ -140,8 +145,10 @@ browser bundle connects to the right server.
 
 ### Architecture: host-authoritative, dumb relay
 
-The game engine is DOM-bound and uses `Math.random`/`setTimeout`, so it cannot
-run headless on the server or in lockstep. Instead:
+The arena state is a plain data model (`state.ts`), but the engine's timers,
+characters and rendering are still browser-bound and use
+`Math.random`/`setTimeout`, so the game cannot yet run headless on the server
+or in lockstep. Instead:
 
 - **Relay server** (`server/ws-server.js`, CommonJS, `ws`): game-agnostic. Manages
   rooms, 4-letter codes, up to 4 player slots plus up to 8 spectators
@@ -167,14 +174,14 @@ run headless on the server or in lockstep. Instead:
 - **Host browser** runs the real engine unchanged and streams authoritative
   state. `src/game/net/host.ts` relays bomb blasts (`setOnBombExplode`) and
   broadcasts full state snapshots every `NET_CONFIG.snapshotIntervalMs` (50ms)
-  via `getCellSnapshots` + character/tracker stats. Online simulation uses a
+  via `getCellSnapshots` (read from the data model) + character/tracker stats. Online simulation uses a
   timer loop instead of only `requestAnimationFrame`, but fully backgrounded
   browser tabs may still be throttled; server-authoritative simulation would
   be needed to remove that limitation.
 - **Guests** are thin views. `src/game/net/guest.ts` rebuilds the grid from the
   host's `start` payload, creates local `Player` instances so `game.tsx`
-  renders unchanged, and applies each snapshot (`applyCellSnapshots` +
-  `syncTimedFlags`). Keyboard input is sent to the host as `InputPayload`.
+  renders unchanged, and applies each snapshot (`applyCellSnapshots` writes
+  the data model and re-renders changed cells, + `syncTimedFlags`). Keyboard input is sent to the host as `InputPayload`.
   **Spectators** use the same guest view in spectator mode (no input listener,
   nothing sent to the host); they can also join mid-game via the
   `spectatorJoined` → re-sent `start` flow.

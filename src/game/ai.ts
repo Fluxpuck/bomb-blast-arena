@@ -3,7 +3,6 @@ import {
   DIRECTION_DELTAS,
   GridPosition,
 } from "../types/game";
-import { predictBlastCells } from "./animations";
 import { BOMB_CONFIG } from "./core/config";
 import {
   getActiveBlastCells,
@@ -11,8 +10,9 @@ import {
   moveCharacter,
   placeBomb
 } from "./engine";
-import { getCellAt, grid, gridCols, gridRows, isWalkable } from "./grid";
+import { gridCols, gridRows, isWalkable } from "./grid";
 import { characterManager, Computer } from "./player";
+import { findCells, getCellState, isBreakable, predictBlastCells } from "./state";
 
 // =========================
 // Tuning
@@ -84,29 +84,14 @@ function recordVisited(state: ComputerAIState, pos: GridPosition): void {
 }
 
 // =========================
-// Grid perception (reads the live DOM grid directly)
+// Grid perception (reads the data model in ./state)
 // =========================
-function findCellsWhere(
-  predicate: (cell: HTMLDivElement, row: number, col: number) => boolean
-): GridPosition[] {
-  const found: GridPosition[] = [];
-  for (let row = 0; row < gridRows; row++) {
-    for (let col = 0; col < gridCols; col++) {
-      const cell = getCellAt(row, col);
-      if (cell && predicate(cell, row, col)) {
-        found.push({ row, col });
-      }
-    }
-  }
-  return found;
-}
-
 function findBarrels(): GridPosition[] {
-  return findCellsWhere((cell) => (cell.dataset as any).barrel === "1");
+  return findCells(isBreakable);
 }
 
 function findPowerups(): GridPosition[] {
-  return findCellsWhere((cell) => cell.dataset.powerup !== undefined);
+  return findCells((cell) => cell.powerup !== null);
 }
 
 // =========================
@@ -294,7 +279,7 @@ function maybePlaceBomb(
 ): boolean {
   const pos = computer.gridPosition;
 
-  const hypotheticalBlast = predictBlastCells(grid, pos, computer.bombRange);
+  const hypotheticalBlast = predictBlastCells(pos, computer.bombRange);
   const hypotheticalDanger = new Set(danger);
   for (const cell of hypotheticalBlast) {
     hypotheticalDanger.add(cellKey(cell.row, cell.col));
@@ -312,10 +297,9 @@ function maybePlaceBomb(
         )
     );
 
-  const wouldHitBarrel = hypotheticalBlast.some((cell) => {
-    const target = getCellAt(cell.row, cell.col);
-    return !!target && (target.dataset as any).barrel === "1";
-  });
+  const wouldHitBarrel = hypotheticalBlast.some((cell) =>
+    isBreakable(getCellState(cell.row, cell.col))
+  );
 
   const wantsToBomb =
     wouldHitBarrel || wouldHitEnemy || Math.random() < IDLE_BOMB_CHANCE;

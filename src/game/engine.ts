@@ -12,7 +12,6 @@ import {
   clearActiveBombTimers,
   getPendingBombs,
   pauseBombTimers,
-  predictBlastCells,
   resumeBombTimers
 } from "./animations";
 import {
@@ -36,6 +35,7 @@ import { tracker } from "./hooks/tracker";
 import { directionByKey, GAME_KEYS } from "./input";
 import { Character, characterManager, Computer, Player } from "./player";
 import { checkPowerupPickup } from "./powerup";
+import { predictBlastCells } from "./state";
 
 // =========================
 // Engine State
@@ -502,7 +502,6 @@ export function getDangerCells(): Set<string> {
 
   for (const pending of getPendingBombs()) {
     const cells = predictBlastCells(
-      grid,
       { row: pending.row, col: pending.col },
       pending.range
     );

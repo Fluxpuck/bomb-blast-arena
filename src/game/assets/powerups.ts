@@ -66,8 +66,9 @@ export function createPowerUp(type: PowerupType, cellSizePx: number): HTMLDivEle
     zIndex: "5",
     pointerEvents: "auto",
   });
+  // Visual marker so the renderer can find/rescale this element; the
+  // gameplay state is CellState.powerup in game/state.ts.
   mount.dataset.powerup = type;
-  mount.dataset.solid = "0";
 
   const scaler = document.createElement("div");
   Object.assign(scaler.style, {

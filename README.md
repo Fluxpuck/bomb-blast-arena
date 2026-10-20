@@ -56,6 +56,7 @@ git clone https://github.com/Fluxpuck/bomberman.git
 cd bomberman
 yarn install
 yarn dev
+yarn test   # headless unit tests (node --test)
 ```
 
 Visit `http://localhost:3000` and start playing!
@@ -117,7 +118,9 @@ would remove this browser limitation. Pause is disabled in online games.
 - **Next.js 16** (App Router, Turbopack) + **React 19**
 - **TypeScript** in strict mode
 - **Tailwind CSS** for UI — the game itself is rendered with an imperative,
-  `requestAnimationFrame`-driven DOM engine in `src/game/`
+  `requestAnimationFrame`-driven DOM engine in `src/game/`; the arena's state
+  (tiles, bombs, power-ups) lives in a plain data model (`src/game/state.ts`)
+  that the DOM only renders
 - **ws** for the multiplayer relay (`server/ws-server.js`)
 - **Discord Embedded App SDK** for the Activity integration
 
