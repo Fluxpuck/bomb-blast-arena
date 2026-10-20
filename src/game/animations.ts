@@ -4,6 +4,7 @@ import {
     createBlastVisual,
     createBombVisual,
 } from "./assets/dynamite";
+import { createTileVisual } from "./assets/blocks";
 import { createPowerUp, PowerupType } from "./assets/powerups";
 import {
     BOMB_CONFIG,
@@ -360,9 +361,10 @@ function detonateBomb(bombId: string): void {
 
     // Handle barrels
     if (isBreakable(state)) {
-      if (target.firstElementChild) {
-        target.removeChild(target.firstElementChild);
-      }
+      // The tile visual is always the cell's first child; swap it for a floor.
+      target.firstElementChild?.replaceWith(
+        createTileVisual("floor", target.offsetWidth || GRID_PATTERN.cellSize)
+      );
       state.tile = "floor";
       // Attribute stats to owner if provided; default to p1 proxy otherwise.
       // incrementBlocksDestroyed is the single authoritative scoring path: it
